@@ -256,7 +256,7 @@ The design has four layers. Each layer depends only on the layers below it.
 | `selfupdate/archive` | tar.gz and zip selector plus extract transformer | stdlib | covered here |
 | `selfupdate/codesign` | darwin re-sign transformer, moved from magic-cli-remote | stdlib (`os/exec`) | covered here |
 | `selfupdate/service/...` | `PollHealthy`, `ExecReconciler`, and systemd, launchd and Windows SCM lifecycles | stdlib, x/sys | covered here |
-| `selfupdate/verify/ed25519sig` | signify-style `SHA256SUMS.sig` with a pinned key | stdlib | yes: signing-key custody and a workflow step |
+| `selfupdate/verify/signednote` | C2SP signed-note release statement, `SHA256SUMS.note` | stdlib plus x/mod (already required) | deferred: designed in the 0004 report; built with the §6 record on releases that are not immutable |
 | `selfupdate/verify/ghattest` | runtime attestation check | the exec variant is dependency-free; the sigstore variant is a new module | yes |
 | `selfupdate/gitlab` | GitLab release source | stdlib | yes: the meaning of mutable releases (§6) |
 | `selfupdate/httpmanifest` | signed JSON index source | stdlib | yes: only safe together with a manifest signature |
@@ -305,32 +305,32 @@ additive.
 
 ```go
 type CheckerConfig struct {
-	Source   ReleaseSource
-	Assets   AssetSelector
-	Versions VersionPolicy
-	Limits   Limits
+    Source   ReleaseSource
+    Assets   AssetSelector
+    Versions VersionPolicy
+    Limits   Limits
 }
 func NewChecker(CheckerConfig) (*Checker, error)
 func (u *Updater) Checker() *Checker
 
 type CheckRequest struct {
-	Product, CurrentVersion, TargetVersion string
-	CurrentBuild                           BuildKind
-	Platform                               Platform
+    Product, CurrentVersion, TargetVersion string
+    CurrentBuild                           BuildKind
+    Platform                               Platform
 }
 type Availability struct {
-	Operation      Operation
-	Current, Latest string
-	ReleaseURL     string
-	Available      bool
+    Operation      Operation
+    Current, Latest string
+    ReleaseURL     string
+    Available      bool
 }
 func (c *Checker) Check(ctx context.Context, r CheckRequest) (Availability, error)
 
 // Cached, rate-limit-aware check for startup banners; never prompts.
 type CheckRecord struct { /* CheckedAt, NotBefore, Current, Latest, ReleaseURL, Available */ }
 type CheckStore interface {
-	Load(context.Context) (CheckRecord, error)
-	Save(context.Context, CheckRecord) error
+    Load(context.Context) (CheckRecord, error)
+    Save(context.Context, CheckRecord) error
 }
 func NewFileCheckStore(path string) CheckStore
 func (c *Checker) CheckCached(ctx context.Context, r CheckRequest, s CheckStore, maxAge time.Duration) (CheckRecord, error)
@@ -391,20 +391,20 @@ one. Allowing prereleases is **not** part of this phase (§6).
 
 ```go
 type Credential struct {
-	Header string
-	Value  []byte
-	Source string
+    Header string
+    Value  []byte
+    Source string
 }
 type CredentialRequest struct {
-	Origin      *url.URL
-	Cause       error // non-nil on a retry after 401/403
-	Interactive bool
+    Origin      *url.URL
+    Cause       error // non-nil on a retry after 401/403
+    Interactive bool
 }
 type CredentialProvider interface {
-	Credential(context.Context, CredentialRequest) (Credential, error)
+    Credential(context.Context, CredentialRequest) (Credential, error)
 }
 type CredentialObserver interface {
-	Accepted(context.Context, Credential)
+    Accepted(context.Context, Credential)
 }
 func ChainCredentials(p ...CredentialProvider) CredentialProvider
 func EnvCredential(header string, names ...string) CredentialProvider
@@ -420,20 +420,22 @@ func EnvCredential(header string, names ...string) CredentialProvider
 
 ```go
 type ManifestVerification struct {
-	Product   string
-	Release   Release
-	Selection Selection
-	Manifest  []byte
-	OpenAsset func(ctx context.Context, name string, limit int64) (io.ReadCloser, error)
+    Product   string
+    Release   Release
+    Selection Selection
+    Manifest  []byte
+    OpenAsset func(ctx context.Context, name string, limit int64) (io.ReadCloser, error)
 }
 type ManifestVerifier interface {
-	VerifyManifest(context.Context, ManifestVerification) error
+    VerifyManifest(context.Context, ManifestVerification) error
 }
 // Config.ManifestVerifiers []ManifestVerifier: run after the manifest
-// download, before the binary download.
+// download, before the binary download. A failure aborts the run and
+// wraps ErrIntegrity. No built-in verifier ships in Phase 1; see
+// "Release signing: deferred, with the hook built".
 
 type Prober interface {
-	Probe(ctx context.Context, path string, rel Release) error
+    Probe(ctx context.Context, path string, rel Release) error
 }
 func NewVersionProber(args []string, want func(tag string) string, timeout time.Duration) Prober
 func NewImageVerifier(p Platform) Verifier // debug/elf, debug/macho, debug/pe
@@ -451,13 +453,13 @@ const AssetStateUploaded = "uploaded"
 
 ```go
 type TwoPhaseSession interface {
-	InstallSession
-	Apply(context.Context, InstallRequest) (Applied, error)
-	Commit(context.Context, Applied) (InstallResult, error)
-	Rollback(context.Context, Applied) error
+    InstallSession
+    Apply(context.Context, InstallRequest) (Applied, error)
+    Commit(context.Context, Applied) (InstallResult, error)
+    Rollback(context.Context, Applied) error
 }
 type StagingOwner interface {
-	Owns(path string) bool
+    Owns(path string) bool
 }
 func NewManagedInstallerFor(inner Installer, life Lifecycle, rec Reconciler) (*ManagedInstaller, error)
 ```
@@ -510,8 +512,8 @@ type CredentialNeeded struct{ Request CredentialRequest /* reply slot */ }
 func (c *CredentialNeeded) Supply(Credential)
 func (c *CredentialNeeded) Cancel(err error)
 type Finished struct {
-	Result Result
-	Err    error
+    Result Result
+    Err    error
 }
 ```
 
@@ -541,19 +543,19 @@ type EventMsg struct{ Event selfupdate.Event }
 type ConfirmMsg struct{ Req *selfupdate.ConfirmNeeded }
 type CredentialMsg struct{ Req *selfupdate.CredentialNeeded }
 type DoneMsg struct {
-	Result selfupdate.Result
-	Err    error
+    Result selfupdate.Result
+    Err    error
 }
 type BannerMsg struct {
-	Record selfupdate.CheckRecord
-	Err    error
+    Record selfupdate.CheckRecord
+    Err    error
 }
 
 func Listen(s *selfupdate.Stream) tea.Cmd // self-reissuing
 func Answer(r *selfupdate.ConfirmNeeded, ok bool) tea.Cmd
 func Supply(r *selfupdate.CredentialNeeded, secret []byte) tea.Cmd
 func CheckInBackground(ctx context.Context, c *selfupdate.Checker, r selfupdate.CheckRequest,
-	store selfupdate.CheckStore, maxAge time.Duration) tea.Cmd
+    store selfupdate.CheckStore, maxAge time.Duration) tea.Cmd
 
 type Model struct{ /* progress bar, spinner, masked input, confirm */ }
 func New(s *selfupdate.Stream, opts ...Option) Model
@@ -585,13 +587,13 @@ This would have prevented C2.
 
 ```go
 type FlagSet interface {
-	BoolVar(*bool, string, bool, string)
-	StringVar(*string, string, string, string)
+    BoolVar(*bool, string, bool, string)
+    StringVar(*string, string, string, string)
 }
 // *flag.FlagSet and pflag's *FlagSet both satisfy FlagSet.
 type Flags struct {
-	Check, Yes, Force, DryRun, JSON bool
-	Version                         string
+    Check, Yes, Force, DryRun, JSON bool
+    Version                         string
 }
 func (f *Flags) Bind(fs FlagSet) // -y through an optional BoolVarP interface
 func (f Flags) Request(product string, id buildinfo.Info) (Request, error) // rejects contradictions
@@ -606,9 +608,20 @@ The canonical protocol is:
   with no positional arguments.
 * Exit codes: 0 when up to date, declined or applied; 10 when `--check`
   finds a target; 1 otherwise.
-* Human progress and prompts go to **stderr**. The `--json` document goes
-  to **stdout**. Nothing else goes to stdout, which keeps MCP stdio servers
-  safe.
+* **Stdout carries machine-readable protocol output and nothing else**
+  (owner decision, 2026-09-30):
+  * JSON-RPC, for a program serving on stdio;
+  * under `--json`, a JSONL stream: one object per line for each event,
+    then a final object with `"kind":"result"` that carries the
+    `ResultDocument`.
+
+  Everything else goes to **stderr**: progress, prompts, human-readable
+  results, banners, warnings, errors and logs. Without `--json`, stdout
+  stays empty.
+
+  `cli.Run` takes both streams in `Options` and never touches `os.Stdout`
+  itself. The MCP servers redirect `os.Stdout` to stderr to protect
+  JSON-RPC, so under `--json` they pass the original stdout explicitly.
 * `--check` combined with `--yes` or `--force` is rejected.
 * SIGINT and SIGTERM cancel the run.
 
@@ -620,7 +633,8 @@ set inside `RunE`), which fixes C3 and C4 wherever it is adopted.
 
 ### 6. Security relaxations: each needs its own record
 
-This record adopts none of these. It names the seam each one would use:
+This record adopts none of these. It names the seam each one would use.
+The owner's decisions of 2026-09-30 (More Information) set their order.
 
 * **Releases that are not immutable (GitLab, Gitea, plain HTTP).**
   * The seam: a source-declared guarantee, for example
@@ -629,17 +643,65 @@ This record adopts none of these. It names the seam each one would use:
     when a `ManifestVerifier` is configured or the owner accepts the weaker
     guarantee in writing.
   * The `gitlab` and `httpmanifest` sources wait for this record.
-  * ocp-login's migration waits for it too.
+  * ocp-login's migration waits for it too. The owner has **deferred**
+    both the record and the migration.
 * **Prerelease channels.** `NewSemverPolicy(SemverOptions{AllowPrerelease})`,
   `Request.AllowPrerelease`, and an optional `ReleaseLister`, because
   GitHub's `latest` endpoint excludes prereleases. mcplib `0005-MADR` rejected
-  prereleases on purpose.
-* **Release signing.**
-  * `verify/ed25519sig` needs key custody and a signing step in
-    `publish-selfupdate-release.yml`.
-  * minisign's default mode needs `golang.org/x/crypto`, a new module.
-  * `verify/ghattest` with sigstore needs a nested module; its exec variant
-    needs `gh` at run time.
+  prereleases on purpose. The owner **wants** prerelease channels. They
+  still get their own record, because they change what an unattended
+  `update` may install. That record is scheduled after Phase 1, which adds
+  the `Config.Versions` fix (G2) that they depend on.
+* **Release signing** is deferred to the record on releases that are not
+  immutable above, which needs it. The next subsection gives the reasons,
+  and says which part is built now.
+* **Runtime provenance** (`verify/ghattest`) still needs its own record:
+  its sigstore variant is a nested module with a large dependency tree,
+  and its exec variant needs `gh` at run time.
+
+### Release signing: deferred, with the hook built
+
+The owner asked for signing to be researched (More Information, decision
+4). The research is recorded in
+[0004-REPORT-release-signing-research.md](../reports/0004-REPORT-release-signing-research.md). It found a design that
+meets every requirement the owner set with no new module: a C2SP signed
+note through `golang.org/x/mod/sumdb/note`. It also found that the
+signature would add almost nothing today.
+
+* **Today's releases are already covered.** HTTPS, GitHub immutable
+  releases, `SHA256SUMS`, per-asset digests, the strict version policy and
+  `refuse-existing-release` cover tampering in transit, file substitution,
+  corruption, replay and overwrite.
+* **A CI-held, auto-approved key adds little.** Anyone who can push a `v*`
+  tag gets a valid signature. They can also change the workflow at that tag
+  and read the secret, so repository write access is effectively key
+  access. Account and repository compromise is the realistic threat, and
+  signing does not stop it.
+* **Signing becomes necessary with a host that cannot guarantee
+  immutability** (GitLab, mirrors, S3, plain HTTP). There nothing else
+  binds a tag to its files. So signing becomes a requirement of the §6
+  record on releases that are not immutable, and is not built before it.
+
+**Decided (2026-09-30): defer signing. Build and test the hook now.**
+
+* **Phase 1 builds `ManifestVerifier` into the Updater (§3).**
+  * It runs after the manifest download and before the binary download.
+  * Its `OpenAsset` reads sibling assets within a caller-given limit.
+  * A failure aborts the run and wraps `ErrIntegrity`.
+  * No built-in verifier ships. Phase 1 tests the hook with a test
+    verifier.
+
+  A signed-note verifier, or any other scheme, can then be added later
+  without an API change.
+* **The rest of the design waits for the §6 record.** That covers the
+  `verify/signednote` package, the signer, the workflow input and key
+  custody. The report holds that design and its open questions.
+* **Hardening that does address the realistic threat** is repository
+  settings rather than code. It is listed here so it is not lost, and each
+  repository applies it under its own records:
+  * a tag ruleset that restricts creating `v*` tags to the owner;
+  * two-factor authentication, and fine-grained, short-lived tokens;
+  * immutable releases turned on in every consumer repository.
 
 ### 7. Phase 4: shared release and install tooling
 
@@ -701,6 +763,8 @@ This record adopts none of these. It names the seam each one would use:
 * **Background auto-apply:** only *checks* may run unattended (§3).
 * **A UI framework inside go-core-lib:** that is option D.
 * **`MarshalText` on the existing enums:** §3 gives the reason.
+* **Release signing now:** deferred; only the hook is built ("Release
+  signing: deferred, with the hook built").
 
 ### Consequences
 
@@ -719,8 +783,8 @@ This record adopts none of these. It names the seam each one would use:
   standard library plus the current `x/*` modules.
 * Neutral, because ocp-login can adopt Phases 1 and 2 only once the §6
   record on non-immutable releases decides how a GitLab source may be
-  trusted. Its own defects O1–O6 should be fixed in ocp-login in the
-  meantime.
+  trusted. The owner has deferred that record. ocp-login keeps its own
+  updater until then, and its defects O1–O6 remain ocp-login's to fix.
 * Bad, because the exported surface roughly doubles. Every addition is a v1
   compatibility promise, so each phase's PLAN must settle names and shapes
   before its tag.
@@ -741,6 +805,11 @@ This record adopts none of these. It names the seam each one would use:
   as tests, and they fail on `v1.0.0`.
 * For Phase 1, `apidiff` (or `gorelease`) against `v1.0.0` reports only
   compatible changes.
+* For Phase 1, a test `ManifestVerifier` shows three things:
+  * it runs before any binary byte is fetched;
+  * it can read a sibling asset through `OpenAsset`;
+  * its failure leaves the target unchanged and matches
+    `ErrIntegrity`.
 * For Phase 2, an example Bubble Tea program in go-tui-lib drives a real
   update against the H3 server, and ctrl+c leaves the target unchanged.
 * For Phase 3, the migration guide shows one consumer (prepare-commit-msg)
@@ -795,23 +864,36 @@ This record adopts none of these. It names the seam each one would use:
 
 ## More Information
 
-### Decisions this record leaves to the owner
+### Owner decisions (2026-09-30)
 
-1. **Stream convention.** §5 sends human output to stderr and `--json` to
-   stdout. prepare-commit-msg and magic-cli-remote send the reporter to
-   stdout today. The recommendation is stderr, because it is the only choice
-   that is safe for MCP stdio servers.
-2. **ocp-login migration.** Should the §6 record on non-immutable releases
-   be written now, so that ocp-login can move, or should ocp-login fix
-   O1–O6 in place and stay separate?
-3. **Prerelease channels.** Are they wanted? If not, §6's second item is
-   dropped rather than deferred.
-4. **Release signing.** Where would an ed25519 signing key live, and who
-   holds it? This decides whether `verify/ed25519sig` or `verify/ghattest`
-   comes first.
-5. **Consumer defects C1–C4.** Should they be fixed now in each repository,
-   ahead of migration? C1 and C2 mean self-update is broken, or needs
-   `--force`, for three published programs today.
+The first draft of this record asked the owner five questions. The
+answers:
+
+1. **Stream convention.** Asked: human output on stderr and `--json` on
+   stdout? prepare-commit-msg and magic-cli-remote send the reporter to
+   stdout today.
+   **Decided:** "Stdout pristine clean json-rpc, jsonl, etc. Use stderr
+   for everything else." §5 states the rule. Both programs move their
+   reporter to stderr when they migrate.
+2. **ocp-login migration.** Asked: write the §6 record on non-immutable
+   releases now, or leave ocp-login separate?
+   **Decided:** deferred. ocp-login keeps its own updater. The `gitlab`
+   source and that §6 record are not scheduled.
+3. **Prerelease channels.** Asked: are they wanted?
+   **Decided:** wanted. They get their own record after Phase 1 (§6).
+4. **Release signing.** Asked: where would a signing key live?
+   **Decided:** research it first. The solution must be idempotent, must
+   work on Windows, Linux and macOS, and should be idiomatic Go, informed
+   by what similar Go projects do.
+   **Then decided, on reviewing the research:** defer signing. Build
+   and test the `ManifestVerifier` hook in Phase 1. Record the research
+   as a report ([0004-REPORT-release-signing-research.md](../reports/0004-REPORT-release-signing-research.md)).
+   The report also records the owner's choice of auto-approval for a
+   future signing environment.
+5. **Consumer defects C1–C4.** Asked: fix them now, ahead of migration?
+   **Decided:** each consumer is fixed and migrated separately, in its
+   own repository and under that repository's own records. This record
+   does not schedule that work.
 
 ### Evidence and related records
 
@@ -827,6 +909,9 @@ This record adopts none of these. It names the seam each one would use:
   once it is accepted), `0030` (one repository for every build target,
   which pins the asset names) and `0035` (the macOS release, and why it
   relies on the linker's ad-hoc signature).
+* [0004-REPORT-release-signing-research.md](../reports/0004-REPORT-release-signing-research.md): the signing
+  research, its sources, the design kept for later, and the backup-key
+  options.
 * The round-2 probe tests (`probe_r2_test.go`, `probe_net_test.go`,
   `fuzz_r2_test.go`) and the differential harness were kept in the review's
   scratch copy. They are not committed; Phase 0 commits them as tests.

@@ -11,6 +11,7 @@
 | 0003 | MADR | [Fix every debugging-pass finding before v1.0.0](decisions/0003-MADR-remediate-debugging-pass-findings.md) | accepted |
 | 0003 | PLAN | [Implement the debugging-pass fixes](decisions/0003-PLAN-remediate-debugging-pass-findings.md) | complete |
 | 0004 | MADR | [Evolve `selfupdate` into a layered, framework-neutral update toolkit](decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md) | proposed |
+| 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
 
 ## I want to…
 
@@ -26,5 +27,6 @@
 | know why the gates were never taught to pass on an empty module | [0001-MADR, §6](decisions/0001-MADR-scaffold-shared-go-library.md#6-gates-are-not-taught-to-pass-on-nothing) |
 | see what the debugging pass found, and how each finding is fixed | [0003-MADR](decisions/0003-MADR-remediate-debugging-pass-findings.md) |
 | see where `selfupdate` is going: API growth, TUI support, the canonical CLI | [0004-MADR](decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md) |
+| know why releases are not signed, and how signing would be done | [0004-REPORT](reports/0004-REPORT-release-signing-research.md) |
 | know how this repository's tooling differs from `go-llmprovider-sdk`'s | [0001-MADR, §5](decisions/0001-MADR-scaffold-shared-go-library.md#5-deliberate-differences-from-go-llmprovider-sdk) |
 | see how the scaffold's checks were proven | [0001-PLAN, execution record](decisions/0001-PLAN-scaffold-shared-go-library.md#execution-record) |
