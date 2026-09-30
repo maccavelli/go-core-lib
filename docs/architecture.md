@@ -52,14 +52,16 @@ docs/
 
 | Directory | Package | Non-test files | Test files | Non-standard imports |
 | :--- | :--- | :--- | :--- | :--- |
-| `selfupdate/` | `selfupdate` | 27 | 25, plus `testdata/SHA256SUMS.{valid,invalid}` and 23 `testdata/manifest-parity/` cases | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `selfupdate/` | `selfupdate` | 27 | 31, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}` and 23 `testdata/manifest-parity/` cases | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
 
 - `selfupdate` is `mcplib` `v1.6.0`'s `selfupdate` (commit `4e1f9a53e265`),
   with the same exported API. It differs from that source in:
   - its import path and package comment;
   - four Windows-only lint fixes;
   - the fixes of
-    [0003-MADR](decisions/0003-MADR-remediate-debugging-pass-findings.md).
+    [0003-MADR](decisions/0003-MADR-remediate-debugging-pass-findings.md)
+    and of [0004-MADR](decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md)
+    Phase 0.
 - The coordinator (`updater.go`) owns the order of every step. It validates
   the selected binary and manifest itself, and parses `SHA256SUMS` before any
   staging. It pins an exact `--version`, and closes the session before
@@ -68,14 +70,24 @@ docs/
   `managed.go`):
   - locks the target directory through `os.Root`, refusing a symlinked lock
     (`openLockFile`);
-  - re-checks the directory's identity before the replace and before commit;
+  - checks that the locked directory is the one at the path before it reads
+    a cleanup receipt, and re-checks it, by the handle's identity, before
+    the replace, after it and before commit;
+  - undoes the rename through the directory handle when the directory
+    changed after it;
   - refuses a staging path that is not a regular file;
-  - reports a failed restore together with the live backup;
-  - runs managed recovery on a context of its own.
+  - reports a failed restore with the backup's path, in
+    `Result.PendingBackup` with `Applied` false, and in the error;
+  - runs the restore after a failed directory sync, and managed recovery,
+    on contexts the caller's cancellation does not reach.
 
-  On Windows, a busy running image is retried until `DefaultLockTimeout` or
-  the caller's context ends. A cleanup receipt may name only a backup of its
-  own target.
+  On Windows, a busy running image is retried until the installer's lock
+  timeout or the caller's context ends. An access-denied error on a
+  read-only destination is not retried. A cleanup receipt may name only a
+  backup of its own target, which is hashed and removed through the
+  directory handle.
+- The terminal confirmer reads one line per answer, a byte at a time, and
+  leaves no read outstanding once a prompt is answered.
 - Platform code is split by build tag: `*_unix.go` (`//go:build unix`),
   `*_windows.go`, and `cleanup_other.go` for non-Windows receipt handling.
 - The package's GitHub `User-Agent` is supplied by the program. It reads

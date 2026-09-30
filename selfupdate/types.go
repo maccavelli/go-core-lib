@@ -384,7 +384,9 @@ type Reconciler interface {
 type InstallOptions struct {
 	// TargetPolicy selects the executable and allowed roots.
 	TargetPolicy TargetPolicy
-	// LockTimeout bounds lock acquisition. Zero selects DefaultLockTimeout.
+	// LockTimeout bounds lock acquisition and, on Windows, the retry of a
+	// replacement the running image refuses while it is busy. Zero selects
+	// DefaultLockTimeout.
 	LockTimeout time.Duration
 }
 

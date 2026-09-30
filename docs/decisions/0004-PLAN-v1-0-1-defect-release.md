@@ -590,3 +590,41 @@ none survived.
     passed, including every fuzz seed.
   * `TestManagedCommitRefusesMovedDirectory` logs that Windows refused
     the directory swap, as the Step 2 tests do.
+
+### Step 7: close-out (2026-09-30)
+
+**What changed.**
+
+* **`docs/architecture.md`.**
+  * The install-path section now describes the receipt ordering, the
+    handle-identity checks, the rollback through the handle, the R1
+    report, and the restore on a context the caller's cancellation does
+    not reach.
+  * It gives the Windows retry bound as the installer's lock timeout, and
+    says a read-only destination is not retried.
+  * It describes the confirmer's one-line reads.
+  * The test-file count is now 31, including the fuzz targets.
+* **`InstallOptions.LockTimeout`.** Its doc comment says it also bounds the
+  Windows busy-image retry (R4).
+* **`doc.go`.** Unchanged: nothing Phase 0 changed contradicts it.
+  `Result.PendingBackup`'s new meaning is documented on the field
+  (Step 2).
+
+**Verification**, run on the finished tree:
+
+| Check | Result |
+| :--- | :--- |
+| `go test -race -count=3 ./...` | `ok` |
+| `go test -shuffle=on -count=2 ./...` | `ok` |
+| `make lint`, for Linux, macOS and Windows | `0 issues.` each |
+| `make vuln` | `No vulnerabilities found.` |
+| `go mod tidy -diff` | clean |
+| `make pre-add-check` on `types.go` | clean |
+| `markdownlint-cli2` on `docs/architecture.md` and `docs/README.md` | clean |
+| Windows test host | `go vet`, `go test -race` and all four script tests passed |
+
+**Status.** This PLAN stays `in-progress`. Its Verification section also
+requires CI to be green on all three operating systems after the push the
+owner asks for, including the first run of the new venv step (deviation
+D2), and that has not happened yet. It becomes `complete` when that run is
+green. `v1.0.1` is not tagged: that needs the owner's explicit ask.
