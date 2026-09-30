@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-29
+status: complete
+date: 2026-09-30
 associated-madr: "0003-MADR-remediate-debugging-pass-findings.md"
 ---
 # Implement the fixes for every debugging-pass finding
@@ -1137,3 +1137,137 @@ defect:
 
 **Gates.** `make pre-add-check`: `52 file(s) clean`. `shellcheck`: 0.
 Windows gate: `overall=0`, `cleanup ok`.
+
+Commit: `8e68c0e`.
+
+### Phase 7: documentation and close-out (2026-09-30)
+
+**Documentation.**
+
+* **D3.** The guide resolves the pin with the peeled ref
+  `'refs/tags/v1.0.0^{}'` and says why (annotated tags).
+* **The guide** no longer claims "no behaviour your program can observe
+  changes". It gains "Behaviour you may notice", with ten items (B11, C1,
+  C6, C2, C3, A1, A3, the event order with C5, C10, D2). Its workflow
+  section states the stricter extras rule, the `SHA256SUMS` rule, and the
+  regular-files-only rule.
+* **`README.md`** gains a pointer to this record and to the guide, the
+  pinned `--version`, the https-only redirect, EOF as a decline, and the
+  gate's ported parser and name rules.
+* **`docs/architecture.md`** gets the file counts from the tree (27
+  non-test, 25 test, 23 parity cases), the new scripts, the coordinator and
+  install-path guarantees, the workflow's `env:`-only ref handling, and the
+  full CI list including `concurrency`. Nested `*` list markers failed
+  MD004 and were changed to `-`.
+
+**Close-out evidence.** Every probe, re-run on a snapshot of the final
+tree. The B probes' `replacePath` seam closures were adapted to the Phase 4
+`ctx` signature and nothing else; a first blanket substitution also hit the
+two-argument `osLink` seam, and that one line was reverted.
+
+* **A1:** extras `err=<nil>`.
+* **A2:** `github returned release "v0.1.0" for tag "v1.2.3"`.
+* **A3:** `refusing redirect to a non-https location`.
+* **A6:** all three inputs give `trailing github json`.
+* **A7:** `RetryAfter=0s`. **A8:** `isRateLimited=true`.
+* **A10:** `github owner must not be a dot segment`.
+* **B1:** `Backup:` reported, error joined. **B3:** mode kept. **B4:** no
+  leak. **B5:** `lock is not a regular file`.
+* **B2:** the probe calls `t.Errorf` unconditionally, so it is read from
+  its log: the joined error now holds `context canceled` **once**, the
+  origin. The pre-fix run held it twice, because the probe's `Start`
+  returns `ctx.Err()` and recovery then ran on the cancelled context.
+* **B6:** the reviewer's probe replicates the old inline expression, not
+  the new function, so it is unchanged by design. `TestValidateReceiptBackup`
+  covers the fix.
+* **C1:** `source returned release "v1.1.0" for requested "v1.0.5"`.
+* **C2:** `installer reported no committed replacement exit=1`.
+* **C3:** the probe fails at `New` with `verifier 0 is nil`, which is the
+  fix.
+* **C4:** `hasESC=false hasNL=false`. **C6:** EOF gives `ok=false err=<nil>`.
+* **C8:** `… verified transforming …`.
+* **D1:** shown in Phase 5's fail-first; both parsers now agree on all 23
+  fixtures.
+
+**Final gates** (the working tree of this commit):
+
+* `make pre-add-check`: `52 file(s) clean`.
+* `go test -race -count=1 -cover ./...`: coverage **85.2 %** (75.5 %
+  before this PLAN).
+* `go mod tidy -diff`: 0; `go mod verify`: `all modules verified`.
+* `shellcheck scripts/*.sh`: 0. `markdownlint-cli2@0.23.2` (npx):
+  `0 issues`. `actionlint` v1.7.12: 0.
+* All six script tests and checkers: 0. `check-workflow-expressions.sh` on
+  `ci.yml`: 0.
+* **G-api** against `mcplib` `v1.6.0`: 34 differing lines, **0** at
+  signature level. The differences are doc comments only: the import
+  header, the package comment, `Config.Limits`, `NewTerminalConfirmer`,
+  `New`, and the two `PendingBackup` fields.
+* **G-diff:** 31 files of `selfupdate/` differ from `v1.6.0`. Since
+  `004d13b`, `selfupdate/`, `scripts/` and `.github/` show 86 files
+  changed, +2906 −240 (fixtures included).
+* **Windows gate:** `go vet` 0; `go test -race` 0; the Windows and
+  cross-platform named tests pass; all script tests 0 (the Git Bash
+  symlink skip, as in Phase 5); `overall=0`; `cleanup ok`.
+
+**V1: finding → fix → evidence.**
+
+| ID | Phase | Test (fail-first unless marked M, a mutation proof) |
+|---|---|---|
+| B11 | 0b | `TestNativeReplaceRunningCopy` (9 of 15 fail → 20 of 20 pass, Windows) |
+| B1 | 3 | `TestInstallSyncAndRollbackFailureReported`, `TestManagedApplyFailureRetriesRollback` |
+| B2 | 3 | `TestManagedRecoveryIgnoresCancelledContext` |
+| B3 | 3 | `TestBackupCopyFallbackPreservesMode` |
+| B4 | 3 | `TestInstallFailureBeforeRenameRemovesStagingOnClose` |
+| B5 | 3 | `TestLockRejectsRelativeSymlink`, `TestLockRejectsDanglingRelativeSymlink` |
+| B6 | 4 | `TestValidateReceiptBackup`, `TestWindowsCleanupReceiptMalformed` |
+| B7 | 4 | `TestWindowsCleanupReceiptMissingBackup` |
+| B8 | 3 | `TestManagedRollbackErrorJoined` (M: `drop-recov-join`) |
+| B10 | 3, 4 | `TestInstallDetectsSwappedDirectory`; `TestMoveFileReplaceHonoursContext` (M, D3) |
+| B9 | 3, 4 | `TestStagingRejectsPlantedSymlink`; M: `TestInstallInjectedFailures`, `…CancelledBeforeAndAfterStaging`, `TestRunBadBodyLeavesNoStaging`, `TestManagedFailureMatrix`; `TestInstallPermissionDenied` (OS-enforced); Windows receipt tests |
+| C1 / A2 | 1, 2 | `TestRunRejectsTagMismatch`, `TestGitHubByTagRejectsMismatchedTag` |
+| C2 | 1 | `TestRunInstallerNoCommitIsError` |
+| C3 | 1 | `TestNewRejectsNilCollaborators` |
+| C4 | 1 | `TestRunEscapesUntrustedTag` |
+| C5 | 1 | `TestRunLocalBuildCheckHintsForce` |
+| C6 | 1 | `TestTerminalConfirmerEOFDeclines` |
+| C7 | 1 | `TestTerminalConfirmerCancelKeepsLine` |
+| C8 | 1 | `TestRunEventOrderWithTransformer` |
+| C9 / A9 | 1 | `TestRunRejectsManifestBeforeStaging` |
+| C10 | 1 | `TestRunErrorsNameProduct` |
+| C11 | 1 | doc comment only |
+| C12 | 1, 4 | `TestRunPendingBackupDetail`, `TestRunPendingBackupAbsolutePath` (D2), `ExampleNewManagedInstaller`, `ExampleExitCode` |
+| C13 | 1 | M: `TestRunCallOrderFailureBoundaries`, `TestRunOperationsMatrix`, `TestRunTransformerSizeLimit`, `TestOverlappingRun`, `TestRunCloseErrorJoinedAfterCommit` |
+| C14 | 1 | `TestRunCompleteAfterClose` |
+| A1 / A5 | 2 | `TestGitHubExtraAssetsDoNotPoisonRelease`, `TestRunValidatesSelectedAssets` |
+| A3 | 2 | `TestGitHubRedirectRequiresHTTPS` |
+| A4 | 2 | M: the four A4 tests, five mutations |
+| A6 | 2 | `TestDecodeJSONRejectsTrailingDelimiters` |
+| A7 | 2 | `TestRateLimitRetryAfterOverflow` |
+| A8 | 2 | `TestGitHubLargeErrorBodyKeepsRateLimit` |
+| A10 | 2 | `TestNewGitHubSourceRejectsDotNames` |
+| A11 | 2 | `TestSanitizeRemovesFormatControls` |
+| D1 | 5 | the old gate accepts 6 client-rejected manifests; `TestManifestParityFixtures` (M) + the shell parity loop |
+| D2 | 0 | record correction |
+| D3 | 7 | guide correction (the peeled ref) |
+| D4 | 5 | `check-workflow-gh-repo_test.sh` (3 of 6 fail on the old checker) |
+| D5 | 5 | the old gate accepts 3 unsafe extras; the upload array (3 → 2 arguments) |
+| D6 | 5 | the old gate accepts a symlinked binary |
+| D7 | 5 | `refuse-existing-release_test.sh` (2 of 8 fail on the old guard) |
+| D8 | 5 | `check-workflow-expressions.sh` (7 interpolations in the old workflow) + its test |
+| D9 | 6 | planted race, SC2086, MD004, actionlint property error |
+| D10 | 5 | the verifier test's parity loop and staging cases |
+| D11 | 6 | `concurrency` group. The App check suite is the owner's; no repository change |
+| D12 | 0 | record correction |
+
+**Not done here, and why.**
+
+* The orphan GitHub App check suite (D11) is an installation setting
+  outside the repository; the owner is told in the hand-off.
+* A CI run of the new steps needs a push, which is 0002-PLAN Phase 6 and
+  needs the owner's ask. Until then the steps are proven locally, as above.
+* Back-porting to `mcplib`, and the consumers' migrations, are out of scope
+  (MADR "What B means").
+
+This PLAN is `complete`. 0002-PLAN Phase 6 resumes: a push on the owner's
+ask, CI on three operating systems, then `v1.0.0` on this commit.

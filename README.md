@@ -23,6 +23,12 @@ tagged yet.
 `selfupdate` and its release workflow come from `mcplib` `v1.6.0`, with the
 same API
 ([0002-MADR](docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md)).
+Before the first release, a debugging pass fixed 42 findings in both
+([0003-MADR](docs/decisions/0003-MADR-remediate-debugging-pass-findings.md)).
+Among them: updating a running Windows program no longer fails with
+"Access is denied", and a failed rollback is no longer reported as a clean
+failure. The behaviour a consumer can see is listed in the
+[migration guide](docs/guides/migrating-from-mcplib-selfupdate.md#behaviour-you-may-notice).
 
 ## Self-update
 
@@ -44,8 +50,12 @@ The library never reads flags or calls `os.Exit`. The program binds:
 
 `ExitCode` maps a run to the process status: 0 when there is no error
 (already current, declined, or applied), 10 when a check finds an update,
-and 1 for any other error. `selfupdate/example_test.go`
-shows a complete standalone binding.
+and 1 for any other error. `selfupdate/example_test.go` shows a complete
+standalone binding, a managed-service binding, and `ExitCode`.
+
+An exact `--version` is pinned: a source that returns another tag is an
+`ErrIntegrity` failure. Redirects must stay on HTTPS unless they go to a
+loopback host. End of input at the confirmation prompt is a decline.
 
 ### Publishing releases
 
@@ -55,7 +65,10 @@ a go-core-lib tag commit. It accepts only a complete staged set that matches
 the declared products, platforms and extras, refuses a tag that already has a
 release (drafts included), attests the files, and publishes an immutable
 release. It never `--clobber`s. It is the only supported publication path for
-the asset contract.
+the asset contract. Its `SHA256SUMS` check is the client's own parser,
+ported, so it never publishes a manifest the client cannot read. Extra asset
+names must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, and staged entries
+must be regular files.
 
 ```yaml
 release:
