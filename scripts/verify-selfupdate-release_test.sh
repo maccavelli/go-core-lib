@@ -112,6 +112,9 @@ run_usage "--bridge is not an option" \
 	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
 	--bridge true
 
+run_usage "missing required arguments" \
+	--products "$PRODUCTS" --platforms "$PLATFORMS"
+
 run_usage "--repository is not an option" \
 	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
 	--repository maccavelli/magic-cli-remote

@@ -42,7 +42,9 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-[ -n "$DIR" ] && [ -n "$PRODUCTS_JSON" ] && [ -n "$PLATFORMS_JSON" ] || usage
+if [ -z "$DIR" ] || [ -z "$PRODUCTS_JSON" ] || [ -z "$PLATFORMS_JSON" ]; then
+	usage
+fi
 [ -d "$DIR" ] || {
 	echo "verify-selfupdate-release: staging directory $DIR is missing" >&2
 	exit 1

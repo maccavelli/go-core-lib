@@ -118,9 +118,10 @@ interpolated into shell.
   - **Every OS:** `go test`, plus, under bash, the refuse-existing-release
     test, both workflow checkers and their tests.
   - **Linux also:** `go test -race`, `go vet`, `gofmt`, `go mod tidy -diff`,
-    `make lint` (golangci-lint v2.13.2), `govulncheck` v1.7.0, `shellcheck`,
-    `markdownlint-cli2` 0.23.2, `actionlint` v1.7.12, and the verifier's
-    fixture test.
+    `make lint` (golangci-lint v2.13.2), `govulncheck` v1.7.0, `shellcheck`
+    v0.11.0 (the latest release, pinned by SHA-256 and first on `PATH`, so
+    actionlint's embedded checks use it too), `markdownlint-cli2` 0.23.2,
+    `actionlint` v1.7.12, and the verifier's fixture test.
   - One run per ref (`concurrency`, cancel in progress). Actions are pinned
     to commit SHAs.
 

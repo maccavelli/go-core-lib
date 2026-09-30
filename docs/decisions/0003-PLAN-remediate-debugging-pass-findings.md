@@ -1,5 +1,5 @@
 ---
-status: complete
+status: in-progress
 date: 2026-09-30
 associated-madr: "0003-MADR-remediate-debugging-pass-findings.md"
 ---
@@ -1269,5 +1269,87 @@ two-argument `osLink` seam, and that one line was reverted.
 * Back-porting to `mcplib`, and the consumers' migrations, are out of scope
   (MADR "What B means").
 
-This PLAN is `complete`. 0002-PLAN Phase 6 resumes: a push on the owner's
-ask, CI on three operating systems, then `v1.0.0` on this commit.
+~~This PLAN is `complete`. 0002-PLAN Phase 6 resumes: a push on the
+owner's ask, CI on three operating systems, then `v1.0.0` on this commit.~~
+*Reopened 2026-09-30 by deviation D5: the push's CI failed on Linux.*
+
+Commit: `a7d5f01`.
+
+#### Deviation D5 (2026-09-30): CI's shellcheck differs from the local gate's
+
+* **Found.** On the owner's ask ("Stage, commit, and push all
+  outstanding"), `main` was pushed (`6b9fb99..a7d5f01`), and CI run
+  `36726867210` followed.
+  * macOS and Windows passed. This was the first CI run of the Phase 4
+    Windows tests and the Windows script steps.
+  * `validate (ubuntu-24.04)` failed at the new
+    `shellcheck, markdownlint, actionlint` step:
+    `In scripts/verify-selfupdate-release.sh line 45: [ -n "$DIR" ] && [ -n "$PRODUCTS_JSON" ] && [ -n "$PLATFORMS_JSON" ] || usage — SC2015 (info)`.
+  * The line is unchanged from `mcplib` `v1.6.0`.
+* **Cause.** Phase 6 added `shellcheck` to CI without a version. The step
+  used the runner's distribution shellcheck, which is older than this
+  host's 0.11.0; 0.11.0 does not report the line. Phase 6's fail-first
+  proved the step can fail, but not that it agrees with the local version.
+  The line itself is correct: `usage` exits whenever any argument is
+  missing.
+* **Owner's decision:** "Option 1, but pin to the most recent shellcheck
+  version supported by CI so they are both up to date and also match."
+* **Measured.** The latest `koalaman/shellcheck` release is **v0.11.0**
+  (2025-08-04), and this host has 0.11.0 (Homebrew stable 0.11.0), so
+  only CI changes. The `linux.x86_64.tar.xz` asset's SHA-256, computed from
+  a scratch download, is
+  `8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198`, the
+  digest GitHub publishes for it.
+* **Phase 8 (added).**
+  1. `verify-selfupdate-release.sh`: line 45 becomes an explicit
+     `if [ -z … ] || …; then usage; fi`, with the same behaviour. The
+     verifier test gains a "missing required arguments" usage case.
+  2. `ci.yml`: the step downloads shellcheck v0.11.0 for linux x86_64,
+     verifies the pinned SHA-256 with `sha256sum -c`, and puts it first on
+     `PATH`, so both `shellcheck scripts/*.sh` and actionlint's embedded
+     shellcheck use it. It prints `shellcheck --version`.
+  3. `docs/architecture.md` records the pinned version.
+  4. Proof: an older shellcheck release flags the old line and not the
+     new one; a wrong digest fails the checksum step; local gates and the
+     Windows gate pass; then a push, and CI green on three operating
+     systems.
+* **Scope added:** `scripts/verify-selfupdate-release.sh`,
+  `scripts/verify-selfupdate-release_test.sh`, `.github/workflows/ci.yml`,
+  `docs/architecture.md`.
+
+### Phase 8: shellcheck parity (2026-09-30)
+
+* **Line 45** is now
+  `if [ -z "$DIR" ] || [ -z "$PRODUCTS_JSON" ] || [ -z "$PLATFORMS_JSON" ]; then usage; fi`.
+  The verifier test's new case `missing required arguments` gets exit 2
+  (43 `ok` lines).
+* **`ci.yml`:**
+  * `SHELLCHECK_VERSION: v0.11.0` and `SHELLCHECK_SHA256: 8c3be12b…7198`;
+  * a `curl` of the release asset into `$RUNNER_TEMP`, then
+    `sha256sum -c -`, then `tar -xJf`, and the pinned binary first on
+    `PATH`, printed with `shellcheck --version`;
+  * then `shellcheck scripts/*.sh`, markdownlint and actionlint as before.
+* **`docs/architecture.md`** records the pinned v0.11.0 and why it is
+  first on `PATH`.
+
+**Proof.**
+
+* **The version difference, reproduced.** The v0.10.0 darwin binary was
+  downloaded to scratch (the release publishes no digest for that asset;
+  the local `shasum` is recorded only for identification).
+  * v0.10.0 on the old script: exit 1, `SC2015`. On the new script: exit 0.
+  * v0.11.0 (local) on both: exit 0.
+  * v0.10.0 on all of `scripts/*.sh` now: exit 0.
+* **The checksum step.** Checked on this host with `shasum -a 256 -c -`, the
+  equivalent of CI's `sha256sum -c -`, on the downloaded linux archive:
+  * the pinned digest gives `OK`, exit 0;
+  * an all-zero digest gives `FAILED … did NOT match`, exit 1, which fails
+    the step under the runner's `bash -e -o pipefail`.
+* **Gates.**
+  * `shellcheck` 0.11.0: 0. The script tests and both checkers: 0, and the
+    expressions checker on `ci.yml`: 0.
+  * The YAML parses. `actionlint` v1.7.12: 0. `markdownlint-cli2@0.23.2`: 0.
+  * `make pre-add-check`: `52 file(s) clean`.
+  * Windows gate: `overall=0`, `cleanup ok`.
+* **Pending:** the push's CI on three operating systems, recorded below
+  when it finishes. This PLAN stays `in-progress` until then.
