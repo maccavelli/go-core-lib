@@ -324,3 +324,46 @@ Commit: `2b7fdae`.
   (`TestWindowsCleanupReceiptRoundTrip`,
   `TestWindowsCleanupReceiptDigestMismatch`) compile here and run first on
   the Windows CI leg in Phase 6.
+
+Commit: `71d9e1d`.
+
+### Phase 3: cross-target lint (2026-09-29)
+
+* `Makefile`: `LINT_GOOS := linux darwin windows`. `lint` runs
+  `CGO_ENABLED=0 GOOS=$$os golangci-lint run -c .golangci.yml ./...` for
+  each, prints `golangci-lint (GOOS=<t>)` before each run and
+  `golangci-lint failed for GOOS=<t>` on a failure, and exits non-zero if
+  any run failed.
+* `scripts/go-precheck.sh` step 2: the same three runs, each failure under
+  `golangci-lint (GOOS=<t>):`. `shellcheck`: exit 0.
+* `ci.yml` needed no change: its Linux step already runs `make lint`
+  (`ci.yml:29`).
+* `AGENTS.md` "Pre-add checks" now describes the three runs and the explicit
+  `CGO_ENABLED=0`. The "until the first package lands" paragraph is removed.
+  `markdownlint-cli2 AGENTS.md`: exit 0.
+* `make lint`: `0 issues.` for each target. `make pre-add-check`:
+  `47 file(s) clean`.
+* **Timing** (`/usr/bin/time -p make lint`, after
+  `golangci-lint cache clean`, then warm):
+
+  | | Cold | Warm |
+  |---|---|---|
+  | host only (before) | 4.65 s | 0.94 s |
+  | three targets (after) | 13.86 s | 2.64 s |
+
+* **First-fail experiment,** on a scratch clone with this phase's `Makefile`
+  and script, no commits made in the clone:
+  * `selfupdate/` at `2b7fdae` (all four fixes absent): `make lint` exited 2
+    with `golangci-lint failed for GOOS=windows` and the four findings.
+    `go-precheck.sh` exited 1 and listed them under
+    `golangci-lint (GOOS=windows):`.
+  * Each fix reverted alone (`revert_fix.py`, scratch only): `make lint`
+    exited 2 with `failed for GOOS=windows`, reporting only that fix's
+    finding. Fix 1 gave G304 `cleanup_windows.go:54:15`, fix 2 SA1019
+    `:123:16`, fix 3 unused `osRename` `replace.go:11:2`, and fix 4 unused
+    `pendingBackup` `replace_windows.go:16:2`.
+  * The fixed tree: `make lint` exit 0, and `go-precheck.sh` exit 0,
+    `47 file(s) clean`.
+
+  The clone was deleted afterwards. By contrast, Phase 1's host-only
+  `make lint` passed the unfixed code with `0 issues.`

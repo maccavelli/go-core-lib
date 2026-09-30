@@ -109,8 +109,10 @@ make pre-add-check FILES="a.go b.go"
 ```
 
 It runs `scripts/go-precheck.sh`: `gofmt` on the files;
-`golangci-lint run -c .golangci.yml ./...`, the same command as `make lint`
-and CI; `go vet` and `go test` on the packages the files belong to; and
+`golangci-lint run -c .golangci.yml ./...` once each for `GOOS=linux`,
+`darwin` and `windows` with `CGO_ENABLED=0`, the same runs as `make lint` and
+CI (`docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md` §5);
+`go vet` and `go test` on the packages the files belong to; and
 `govulncheck ./...` (`GO_PRECHECK_SKIP_VULN=1` skips it offline). `golint` is
 not used: its checks are `revive`'s `exported`, `package-comments` and
 `var-naming` rules in `.golangci.yml`. A file that fails is not committed.
@@ -121,10 +123,8 @@ is no `git add` hook on every host; do not rely on one.
 
 `make lint` and `make vuln` must be clean before a release-shaped change.
 
-Until the first package lands, `make test`, `make vet`, `make lint` and
-`make vuln` fail with "no packages" (or golangci-lint's "no go files to
-analyze"). That is expected and is not to be guarded away:
-`docs/decisions/0001-MADR-scaffold-shared-go-library.md` §6.
+Cross-target commands set `CGO_ENABLED=0` explicitly: a host `go env` may
+set `CGO_ENABLED=1`, and cgo cannot cross-compile to another OS here.
 
 ## Identifiers
 

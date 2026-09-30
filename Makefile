@@ -29,13 +29,21 @@ fmt: ## Formats all Go source files
 vet: ## Runs go vet
 	go vet ./...
 
-lint: ## Runs golangci-lint with fleet config
+# Lint every target the code builds for, with cgo off so a cross-target run
+# never needs a C toolchain for that target
+# (docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md §5).
+LINT_GOOS := linux darwin windows
+
+lint: ## Runs golangci-lint with fleet config for linux, darwin and windows
 	@if [ ! -x "$(GOLANGCI_LINT)" ]; then \
 		echo "golangci-lint not found at $(GOLANGCI_LINT)"; \
 		echo "Install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"; \
 		exit 1; \
 	fi
-	$(GOLANGCI_LINT) run -c $(FLEET_LINT_CFG) ./...
+	@status=0; for os in $(LINT_GOOS); do \
+		echo "golangci-lint (GOOS=$$os)"; \
+		CGO_ENABLED=0 GOOS=$$os $(GOLANGCI_LINT) run -c $(FLEET_LINT_CFG) ./... || { echo "golangci-lint failed for GOOS=$$os"; status=1; }; \
+	done; exit $$status
 
 tidy: ## Runs go mod tidy
 	go mod tidy

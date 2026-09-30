@@ -85,14 +85,20 @@ fi
 
 # 2. golangci-lint, with this repository's configuration: the same command
 # `make lint` runs, so a commit cannot pass a weaker check than CI applies.
+# It runs once per target the code builds for, with cgo off, because a
+# host-only run never sees a *_windows.go or *_unix.go file of another OS
+# (docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md §5).
 need go || exit 2
 GOLANGCI="${GOLANGCI_LINT:-$(go env GOPATH)/bin/golangci-lint}"
+lint_targets=(linux darwin windows)
 if [ -x "$GOLANGCI" ]; then
-  if ! lint_out="$("$GOLANGCI" run -c .golangci.yml ./... 2>&1)"; then
-    echo "golangci-lint:" >&2
-    printf '%s\n' "$lint_out" | tail -40 | sed 's/^/  /' >&2
-    fail 1
-  fi
+  for goos in "${lint_targets[@]}"; do
+    if ! lint_out="$(CGO_ENABLED=0 GOOS="$goos" "$GOLANGCI" run -c .golangci.yml ./... 2>&1)"; then
+      echo "golangci-lint (GOOS=$goos):" >&2
+      printf '%s\n' "$lint_out" | tail -40 | sed 's/^/  /' >&2
+      fail 1
+    fi
+  done
 else
   echo "go-precheck: golangci-lint not found at $GOLANGCI." >&2
   echo "  install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1" >&2
