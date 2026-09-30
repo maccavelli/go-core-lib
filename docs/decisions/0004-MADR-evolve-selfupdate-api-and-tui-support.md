@@ -328,6 +328,31 @@ PLAN was written against the code. Each is marked *(clarified)*.
 Everything here is in package `selfupdate`, standard library only, and
 additive.
 
+**Amended 2026-09-30 by [0004-PLAN-v1-1-0-core-api.md](0004-PLAN-v1-1-0-core-api.md).**
+
+* **The PLAN's shapes supersede the sketches.** This section left names
+  and shapes to the PLAN, and the PLAN's API blocks are authoritative
+  where they differ from the sketches below. That includes
+  `NewFileCheckStore`, `NewVersionProber` and `NewImageVerifier`, which
+  each also return an error.
+* **The amendments.** The owner approved eight with the PLAN. Each is
+  marked where it applies:
+  * **A1.** A zero `Config.ProgressInterval` emits no progress events;
+    progress is opt-in.
+  * **A2.** `Prober.Probe(ctx, ProbeRequest)`.
+  * **A3.** `Availability` is named like `Result`: `Product`,
+    `CurrentVersion`, `TargetVersion`, `ReleaseURL`, `AssetName`,
+    `Operation`, `Available`, `ForceRequired`.
+  * **A4.** `Apply` returns `AppliedReplacement{Target, Backup string;
+    State any}`.
+  * **A5.** New fields: `InstallResult.RolledBack` and `.Previous`,
+    `InstallRequest.TargetVersion`, and `Result.DryRun` and `.Previous`.
+  * **A6.** An empty `Credential.Header` means
+    `Authorization: Bearer <Value>`.
+  * **A7.** `EventDeclined`, `EventFailed` and `EventRolledBack` are
+    advisory, like progress.
+  * **A8.** `NewTextReporter` skips `EventProgress`.
+
 **Querying without installing (G3, G4).**
 
 ```go
@@ -345,7 +370,7 @@ type CheckRequest struct {
     CurrentBuild                           BuildKind
     Platform                               Platform
 }
-type Availability struct {
+type Availability struct { // amended A3
     Operation      Operation
     Current, Latest string
     ReleaseURL     string
@@ -388,11 +413,14 @@ one. Allowing prereleases is **not** part of this phase (§6).
   total, with `-1` meaning unknown.
 * The download copy emits progress no more often than
   `Config.ProgressInterval` (default 100 ms), and always emits a final event.
+  *(Amended A1: a zero interval emits none; progress is opt-in. A8:
+  `NewTextReporter` skips progress.)*
   Progress events are **advisory**: an error returned from reporting one
   does not abort the run. An error from any other event still aborts, as
   today.
 * New kinds `EventDeclined`, `EventFailed` and `EventRolledBack` are
   appended. `EventFailed` carries the sanitised error class in `Detail`.
+  *(Amended A7: an error from reporting any of the three is ignored.)*
 
 **Adapters and defaults (G6).**
 
@@ -437,6 +465,8 @@ func ChainCredentials(p ...CredentialProvider) CredentialProvider
 func EnvCredential(header string, names ...string) CredentialProvider
 ```
 
+* *(Amended A6: an empty `Header` means `Authorization: Bearer <Value>`;
+  otherwise `Header: Value` is sent verbatim.)*
 * `GitHubOptions` gains `Credentials` and `Observer`. The existing `Token`
   field keeps working and is treated as the first link of the chain.
 * A source sends a credential only to the origin it was requested for, and
@@ -461,7 +491,7 @@ type ManifestVerifier interface {
 // wraps ErrIntegrity. No built-in verifier ships in Phase 1; see
 // "Release signing: deferred, with the hook built".
 
-type Prober interface {
+type Prober interface { // amended A2: Probe(ctx, ProbeRequest) error
     Probe(ctx context.Context, path string, rel Release) error
 }
 func NewVersionProber(args []string, want func(tag string) string, timeout time.Duration) Prober
@@ -479,7 +509,7 @@ const AssetStateUploaded = "uploaded"
 **First-class custom installers (G7).**
 
 ```go
-type TwoPhaseSession interface {
+type TwoPhaseSession interface { // amended A4: Applied is AppliedReplacement
     InstallSession
     Apply(context.Context, InstallRequest) (Applied, error)
     Commit(context.Context, Applied) (InstallResult, error)
@@ -506,6 +536,9 @@ func NewManagedInstallerFor(inner Installer, life Lifecycle, rec Reconciler) (*M
   rollback.
 * `(*StandaloneInstaller).CleanupPending(ctx)`: a program calls it at
   startup to process a Windows pending backup.
+* *(Amended A5: `Result.DryRun`, `Result.Previous`,
+  `InstallResult.Previous`, `InstallResult.RolledBack` and
+  `InstallRequest.TargetVersion` carry these outcomes.)*
 
 ### 4. Phase 2: framework-neutral interaction, and the TUI adapter
 

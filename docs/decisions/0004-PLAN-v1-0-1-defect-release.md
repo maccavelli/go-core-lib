@@ -650,3 +650,8 @@ The owner pushed the seven commits (`33761dd`..`e2da354`). CI run
 
 Every acceptance criterion is now met, and this PLAN is `complete`.
 `v1.0.1` is still untagged, pending the owner's ask.
+
+### Release (2026-09-30)
+
+The owner pushed `2ec2c68` and tagged `v1.0.1` on it. CI on `2ec2c68`
+was green on all three operating systems.
