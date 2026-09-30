@@ -482,3 +482,38 @@ Commit: `da7da95`.
 This Phase 5 commit is the `v1.0.0` commit (MADR §8). Its SHA is recorded
 in Phase 6, which has not started: it waits for the owner's ask to push,
 then to tag.
+
+Commit: `3700381` (`370038110816f9f97a4f2edb2c658ff0f7abd16d`).
+
+### Phase 6: push, CI, tag (2026-09-29, in progress)
+
+* **Step 1.** The pre-push disclosure guard from `AGENTS.md`, over
+  `origin/main..main` (the ten 0001 and 0002 commits): exit 0, no output.
+* **Step 2.** The owner: "Push". `git push origin main`:
+  `8ebd95e..3700381  main -> main`, exit 0. Only this repository was pushed.
+  The shellcheck fixes in the four other repositories (0001-PLAN D1) stay
+  local.
+  * GitHub started **two** `CI` runs for the one push, `36664052134` and
+    `36664053095`. Both are `.github/workflows/ci.yml`, event `push`, head
+    `3700381`, workflow id `370764591`. The cause was not established; it is
+    GitHub's duplicate trigger, not a second workflow. Both were watched to
+    completion.
+  * Both concluded `success`, with `validate (ubuntu-24.04)`,
+    `validate (macos-15)` and `validate (windows-2025)` each `success`. On
+    ubuntu every step succeeded: `go test`; `vet, gofmt, tidy, lint` (the
+    three-target `make lint`); `govulncheck`;
+    `verify self-update release fixtures`; and
+    `Verify the release guard and its workflow contract`.
+  * **Windows** (job `109724815442`): `Run go test ./...` printed
+    `ok  github.com/maccavelli/go-core-lib/selfupdate 4.827s`. That run
+    includes the `//go:build windows` tests
+    `TestWindowsCleanupReceiptRoundTrip` and
+    `TestWindowsCleanupReceiptDigestMismatch`, which exercise fixes 1 and 2
+    — their first run. Under `shell: bash`,
+    `Verify the release guard and its workflow contract` printed
+    `6 passed, 0 failed` and
+    `check-workflow-gh-repo: ok — every repository-scoped gh step sets GH_REPO`.
+  * A GitHub annotation on `validate (macos-15)` warned of queue delays for
+    macOS arm64 runners. It is informational; the job passed.
+* **Steps 3–5** (tag `v1.0.0` on `3700381`, tag CI, proxy check, filling in
+  the guide's SHA, closing this PLAN) wait for the owner's ask to tag.
