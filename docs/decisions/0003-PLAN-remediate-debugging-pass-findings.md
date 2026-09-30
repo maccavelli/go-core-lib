@@ -863,3 +863,114 @@ Commit: `e5bb201`.
       file because it is being used by another process". Windows refuses
       to rename a directory the session holds open, which itself prevents
       the swap.
+
+Commit: `339fd17`.
+
+### Phase 4: install path, Windows (2026-09-30)
+
+**Changes.**
+
+* **B6.** The portable `validateReceiptBackup` (in `cleanup.go`, with
+  `backupPrefix`) requires:
+  * a non-empty `filepath.IsLocal` bare basename with no separators;
+  * the prefix `"." + target.Base + ".selfupdate-bak-"`, with something
+    after it;
+  * a name that is not `target.Base`.
+
+  `processCleanupReceipt` uses it, and now `Lstat`s and removes through
+  `root` (`root.Lstat`, `root.Remove`).
+* **B7.** A receipt whose backup does not exist is removed, the directory
+  is synced, and `nil` is returned. A digest mismatch, a non-regular or
+  reparse backup, and a failed removal still fail closed.
+* **B10, Windows.** `ctx` is plumbed through the replace seam:
+  `replacePath` is now `func(ctx, old, new)`, and `replaceTarget`,
+  `rollbackReplacement`, `replaceLocked` and `installSession.rollback`
+  take `ctx`. The managed `recover` passes its recovery context.
+  `moveFileReplace(ctx, …)` calls `MoveFileEx` through the new
+  `moveFileExFn` seam and stops retrying when `ctx` is done, returning
+  both the last error and `ctx.Err()`. The plumbing was one count-asserted
+  script across five files and two test files.
+
+#### Deviation D2 (2026-09-30): `PendingBackup` is a path, not a basename
+
+* **Found** while reading the Windows commit path for this phase.
+  `commitReplacement` (windows) returns `result.backup`, an **absolute
+  path** from `os.CreateTemp(target.Dir, …)`, and the `v1.6.0` code
+  returned the same. The doc comments on `InstallResult.PendingBackup`
+  and `Result.PendingBackup` said "basename".
+* **Effect.** Phase 1's C12 change,
+  `filepath.Join(target.Dir, PendingBackup)`, would have printed a doubled
+  path on Windows. `TestRunPendingBackupDetail` missed it because its fake
+  installer returned a bare name.
+* **Resolution,** within C12's scope:
+  * the detail uses `PendingBackup` as-is when it is absolute, and joins
+    it onto the directory otherwise;
+  * both doc comments now say it is a path. That is a doc-only G-api
+    change (two comments), matching what the code always returned;
+  * `TestRunPendingBackupAbsolutePath` added. On `339fd17` it fails with
+    the doubled path (`…/001/var/folders/…/001/…`).
+* **Scope added:** `types.go` (two doc comments).
+
+#### Deviation D3 (2026-09-30): the seam tests' fail-first method
+
+* **Found.** `TestMoveFileReplaceHonoursContext` and
+  `TestMoveFileReplaceRetriesAccessDenied` use `moveFileExFn` and
+  `moveFileReplace(ctx, …)`, which this phase introduces. They cannot
+  compile against `339fd17`.
+* **Resolution.** Each was proven on the Windows host by a mutation that
+  restores exactly the pre-fix behaviour in the current code: no
+  `ctx.Done()` case, and `isSharingViolation` as the retry condition. The
+  receipt tests did run fail-first against `339fd17`, with a scratch shim
+  giving `backupPrefix`, and giving `validateReceiptBackup` as an exact
+  copy of the old inline check.
+
+**Fail-first, on the Windows host,** against `339fd17` with the new
+`cleanup_windows_test.go`, `cleanup_test.go` and the shim:
+
+* `TestValidateReceiptBackup` FAIL. The old check accepted `demo.exe`,
+  the lock, the receipt, the bare prefix, another product's backup,
+  `victim`, `/home/u/bin/…`, `.` and `..`.
+* `TestWindowsCleanupReceiptMissingBackup` FAIL:
+  `stale receipt blocked the update: selfupdate: stat pending backup: GetFileAttributesEx …`.
+* `TestWindowsCleanupReceiptMalformed` FAIL on *names target*, *names
+  lock*, *other product* and *bare prefix* ("accepted"). Its *names
+  target* case shows that the old code would delete the live executable
+  given a receipt naming it with a matching digest.
+* `TestWindowsCleanupReceiptReparseBackup`,
+  `TestWindowsReceiptConsumedByBegin`, `…RoundTrip` and
+  `…DigestMismatch` passed there, being existing protections. They are
+  proven by the mutations below.
+
+**Mutations, on the Windows host:**
+
+| Mutation | Test | Failure |
+|---|---|---|
+| `movefile-ignores-ctx` | `TestMoveFileReplaceHonoursContext` | returns the sharing violation after **5.01 s**, without `context.DeadlineExceeded` |
+| `movefile-no-access-denied-retry` | `TestMoveFileReplaceRetriesAccessDenied` | `err=Access is denied. calls=1` |
+| `receipt-no-reparse-check` | `TestWindowsCleanupReceiptReparseBackup` | `accepted a symlinked backup` |
+| `begin-skips-receipt` | `TestWindowsReceiptConsumedByBegin` | `.demo.selfupdate-bak-begin not consumed by Begin` |
+| `receipt-no-digest-check` | `TestWindowsCleanupReceiptDigestMismatch` | `err = <nil>, want the digest mismatch (ErrIntegrity)` |
+
+* `receipt-no-reparse-check` as first written left `binfo` unused, so its
+  "failure" was a build error. It was rewritten to keep the variable in
+  use, and the recorded failure is from the rewrite.
+* `TestWindowsCleanupReceiptDigestMismatch` itself was corrected. Its
+  backup name `"bak"` is invalid under B6, which would have refused it for
+  the wrong reason. It now uses a valid backup name and asserts
+  `ErrIntegrity`.
+
+**Gates.**
+
+* `make pre-add-check`: `51 file(s) clean`.
+* `go test -race -cover`: coverage **85.1 %**. `go mod tidy -diff`: 0.
+* G-api: the two `PendingBackup` doc comments (D2) and nothing else.
+* **Windows gate:** `go vet` 0, `go test -race` 0, script tests 0,
+  `overall=0`, `cleanup ok`. PASS, with **no skips**:
+  `TestValidateReceiptBackup`, `TestWindowsCleanupReceiptRoundTrip`,
+  `…DigestMismatch`, `…MissingBackup`, `…Malformed`, `…ReparseBackup`,
+  `TestWindowsReceiptConsumedByBegin`, `TestLockRejectsRelativeSymlink`,
+  `TestLockRejectsDanglingRelativeSymlink`,
+  `TestStagingRejectsPlantedSymlink`, `TestNativeReplaceRunningCopy`,
+  `TestMoveFileReplaceHonoursContext`,
+  `TestMoveFileReplaceRetriesAccessDenied`, `TestRunPendingBackupDetail`,
+  `TestRunPendingBackupAbsolutePath`.

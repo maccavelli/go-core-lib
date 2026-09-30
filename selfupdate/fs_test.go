@@ -10,7 +10,7 @@ import (
 func TestInjectedRenameFailure(t *testing.T) {
 	_, exe := withTempHome(t)
 	prev := replacePath
-	replacePath = func(oldpath, newpath string) error {
+	replacePath = func(ctx context.Context, oldpath, newpath string) error {
 		return errors.New("injected rename failure")
 	}
 	t.Cleanup(func() { replacePath = prev })

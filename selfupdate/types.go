@@ -133,8 +133,9 @@ type Result struct {
 	ServiceInstalled bool
 	// ServiceWasRunning reports whether that definition's process was active.
 	ServiceWasRunning bool
-	// PendingBackup is the Windows running-image backup basename when the
-	// active image kept the backup open after commit.
+	// PendingBackup is the path of the Windows running-image backup when the
+	// active image kept the backup open after commit. It is validated and
+	// removed before the next download.
 	PendingBackup string
 }
 
@@ -330,7 +331,8 @@ type InstallResult struct {
 	ServiceInstalled bool
 	// ServiceWasRunning reports whether that definition's process was active.
 	ServiceWasRunning bool
-	// PendingBackup is the Windows running-image backup basename when needed.
+	// PendingBackup is the path of the Windows running-image backup when it
+	// could not be removed after commit.
 	PendingBackup string
 }
 

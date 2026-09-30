@@ -65,7 +65,7 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	applied, err := s.replaceLocked(req.Artifact.Path)
+	applied, err := s.replaceLocked(ctx, req.Artifact.Path)
 	if err != nil {
 		// Backup is non-empty only when the new binary is live and the
 		// restore failed (0003-MADR B1).
@@ -97,13 +97,13 @@ func (s *installSession) apply(ctx context.Context, req InstallRequest) (applyRe
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.replaceLocked(req.Artifact.Path)
+	return s.replaceLocked(ctx, req.Artifact.Path)
 }
 
 // replaceLocked replaces the target with an owned staging file. The caller
 // holds s.mu. Staging is deregistered only once the rename has consumed it,
 // so a failure before that leaves it for Close to remove (0003-MADR B4).
-func (s *installSession) replaceLocked(path string) (applyResult, error) {
+func (s *installSession) replaceLocked(ctx context.Context, path string) (applyResult, error) {
 	if s.closed {
 		return applyResult{}, fmt.Errorf("selfupdate: session is closed")
 	}
@@ -122,7 +122,7 @@ func (s *installSession) replaceLocked(path string) (applyResult, error) {
 	if !info.Mode().IsRegular() {
 		return applyResult{}, fmt.Errorf("selfupdate: staging is not a regular file")
 	}
-	applied, err := replaceTarget(s.target, path)
+	applied, err := replaceTarget(ctx, s.target, path)
 	if applied.renamed {
 		delete(s.staging, path)
 	}
@@ -152,10 +152,10 @@ func (s *installSession) commit(applied applyResult) (string, error) {
 	return commitReplacement(s.target, applied)
 }
 
-func (s *installSession) rollback(applied applyResult) error {
+func (s *installSession) rollback(ctx context.Context, applied applyResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return rollbackReplacement(s.target, applied)
+	return rollbackReplacement(ctx, s.target, applied)
 }
 
 func (s *installSession) Close() error {

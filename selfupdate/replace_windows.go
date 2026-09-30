@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -23,11 +24,11 @@ func isUnsupportedDirSync(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED)
 }
 
-func replacePathOS(oldpath, newpath string) error {
-	return moveFileReplace(oldpath, newpath)
+func replacePathOS(ctx context.Context, oldpath, newpath string) error {
+	return moveFileReplace(ctx, oldpath, newpath)
 }
 
-func replaceTarget(target Target, staging string) (applyResult, error) {
+func replaceTarget(ctx context.Context, target Target, staging string) (applyResult, error) {
 	info, err := os.Lstat(target.Path)
 	if err != nil {
 		return applyResult{}, err
@@ -46,12 +47,12 @@ func replaceTarget(target Target, staging string) (applyResult, error) {
 	if err := backupFile(target.Path, backup); err != nil {
 		return applyResult{}, fmt.Errorf("selfupdate: backup target: %w", err)
 	}
-	if err := replacePath(staging, target.Path); err != nil {
+	if err := replacePath(ctx, staging, target.Path); err != nil {
 		return applyResult{}, joinRemove(fmt.Errorf("selfupdate: replace target: %w", err), backup)
 	}
 	if err := syncDirFn(target.Dir); err != nil && !isUnsupportedSync(err) {
 		syncErr := fmt.Errorf("selfupdate: sync directory: %w", err)
-		if rerr := replacePath(backup, target.Path); rerr != nil {
+		if rerr := replacePath(ctx, backup, target.Path); rerr != nil {
 			// The new binary is live and the backup is kept: report both
 			// (0003-MADR B1).
 			return applyResult{backup: backup, oldDigest: oldDigest, renamed: true},
@@ -62,7 +63,12 @@ func replaceTarget(target Target, staging string) (applyResult, error) {
 	return applyResult{backup: backup, oldDigest: oldDigest, renamed: true}, nil
 }
 
-func moveFileReplace(from, to string) error {
+// moveFileExFn is windows.MoveFileEx, replaceable in tests.
+var moveFileExFn = windows.MoveFileEx
+
+// moveFileReplace retries a busy replacement until DefaultLockTimeout or the
+// caller's context ends, whichever comes first (0003-MADR B10, B11).
+func moveFileReplace(ctx context.Context, from, to string) error {
 	fromW, err := windows.UTF16PtrFromString(from)
 	if err != nil {
 		return err
@@ -74,7 +80,7 @@ func moveFileReplace(from, to string) error {
 	deadline := time.Now().Add(DefaultLockTimeout)
 	var last error
 	for {
-		last = windows.MoveFileEx(fromW, toW, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+		last = moveFileExFn(fromW, toW, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 		if last == nil {
 			return nil
 		}
@@ -83,7 +89,13 @@ func moveFileReplace(from, to string) error {
 		if !isBusyRunningImage(last) || time.Now().After(deadline) {
 			return last
 		}
-		time.Sleep(10 * time.Millisecond)
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return errors.Join(last, ctx.Err())
+		case <-timer.C:
+		}
 	}
 }
 
@@ -111,11 +123,11 @@ func commitReplacement(target Target, result applyResult) (pending string, err e
 	return "", syncDirFn(target.Dir)
 }
 
-func rollbackReplacement(target Target, result applyResult) error {
+func rollbackReplacement(ctx context.Context, target Target, result applyResult) error {
 	if result.backup == "" {
 		return fmt.Errorf("selfupdate: no backup to restore")
 	}
-	if err := replacePath(result.backup, target.Path); err != nil {
+	if err := replacePath(ctx, result.backup, target.Path); err != nil {
 		return fmt.Errorf("selfupdate: restore backup: %w", err)
 	}
 	return syncDirFn(target.Dir)

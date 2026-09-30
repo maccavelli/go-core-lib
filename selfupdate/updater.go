@@ -306,7 +306,13 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	closeErr = closeSession()
 	detail := "release asset integrity verified"
 	if resultOut.PendingBackup != "" {
-		retained := filepath.Join(target.Dir, resultOut.PendingBackup)
+		// The standalone installer reports an absolute path; a custom
+		// Installer may report a name relative to the target directory
+		// (0003-PLAN deviation D2).
+		retained := resultOut.PendingBackup
+		if !filepath.IsAbs(retained) {
+			retained = filepath.Join(target.Dir, retained)
+		}
 		detail = "pending backup " + sanitizeText(retained) + " will be validated and removed before the next download"
 	}
 	repErr := u.report(ctx, Event{

@@ -62,14 +62,20 @@ func processCleanupReceipt(target Target, root *os.Root) error {
 	if rec.Version != 1 || rec.Backup == "" || rec.Digest == "" {
 		return fmt.Errorf("selfupdate: malformed cleanup receipt")
 	}
-	if filepath.Base(rec.Backup) != rec.Backup || filepath.Dir(rec.Backup) != "." && !filepath.IsAbs(rec.Backup) {
-		if filepath.Dir(rec.Backup) != target.Dir && filepath.Base(rec.Backup) != rec.Backup {
-			return fmt.Errorf("selfupdate: cleanup receipt backup is not a basename")
-		}
+	if err := validateReceiptBackup(target, rec.Backup); err != nil {
+		return err
 	}
-	base := filepath.Base(rec.Backup)
-	backupPath := filepath.Join(target.Dir, base)
-	binfo, err := os.Lstat(backupPath)
+	backupPath := filepath.Join(target.Dir, rec.Backup)
+	binfo, err := root.Lstat(rec.Backup)
+	if errors.Is(err, os.ErrNotExist) {
+		// The backup is already gone (a crash between the two removals, or
+		// a manual delete): the receipt has nothing left to protect, and
+		// keeping it would block every later update (0003-MADR B7).
+		if err := root.Remove(name); err != nil {
+			return fmt.Errorf("selfupdate: remove stale cleanup receipt: %w", err)
+		}
+		return syncDirFn(target.Dir)
+	}
 	if err != nil {
 		return fmt.Errorf("selfupdate: stat pending backup: %w", err)
 	}
@@ -83,10 +89,10 @@ func processCleanupReceipt(target Target, root *os.Root) error {
 	if got != rec.Digest {
 		return fmt.Errorf("selfupdate: pending backup digest mismatch: %w", ErrIntegrity)
 	}
-	if err := os.Remove(backupPath); err != nil {
+	if err := root.Remove(rec.Backup); err != nil {
 		return fmt.Errorf("selfupdate: remove pending backup: %w", err)
 	}
-	if err := os.Remove(filepath.Join(target.Dir, name)); err != nil {
+	if err := root.Remove(name); err != nil {
 		return fmt.Errorf("selfupdate: remove cleanup receipt: %w", err)
 	}
 	return syncDirFn(target.Dir)

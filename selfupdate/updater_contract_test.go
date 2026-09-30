@@ -574,3 +574,27 @@ func TestRunPendingBackupDetail(t *testing.T) {
 	}
 	t.Fatal("no complete event")
 }
+
+// TestRunPendingBackupAbsolutePath: the standalone installer reports an
+// absolute path; the detail uses it as is, not joined onto the directory
+// again (0003-PLAN deviation D2).
+func TestRunPendingBackupAbsolutePath(t *testing.T) {
+	env := newContractEnv(t)
+	abs := filepath.Join(env.inst.dir, ".demo.selfupdate-bak-2")
+	env.inst.pending = abs
+	u := env.build(t)
+	req := applyReq()
+	req.Yes = true
+	if _, err := u.Run(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range env.rep.events {
+		if ev.Kind == EventComplete {
+			if !strings.Contains(ev.Detail, abs) || strings.Count(ev.Detail, env.inst.dir) != 1 {
+				t.Fatalf("detail %q, want %q exactly once", ev.Detail, abs)
+			}
+			return
+		}
+	}
+	t.Fatal("no complete event")
+}

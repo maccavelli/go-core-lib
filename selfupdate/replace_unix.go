@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -21,11 +22,11 @@ func isUnsupportedDirSync(error) bool {
 	return false
 }
 
-func replacePathOS(oldpath, newpath string) error {
+func replacePathOS(_ context.Context, oldpath, newpath string) error {
 	return osRename(oldpath, newpath)
 }
 
-func replaceTarget(target Target, staging string) (applyResult, error) {
+func replaceTarget(ctx context.Context, target Target, staging string) (applyResult, error) {
 	info, err := os.Lstat(target.Path)
 	if err != nil {
 		return applyResult{}, err
@@ -40,12 +41,12 @@ func replaceTarget(target Target, staging string) (applyResult, error) {
 	if err := backupFile(target.Path, backup); err != nil {
 		return applyResult{}, fmt.Errorf("selfupdate: backup target: %w", err)
 	}
-	if err := replacePath(staging, target.Path); err != nil {
+	if err := replacePath(ctx, staging, target.Path); err != nil {
 		return applyResult{}, joinRemove(fmt.Errorf("selfupdate: rename staging over target: %w", err), backup)
 	}
 	if err := syncDirFn(target.Dir); err != nil {
 		syncErr := fmt.Errorf("selfupdate: sync directory: %w", err)
-		if rerr := replacePath(backup, target.Path); rerr != nil {
+		if rerr := replacePath(ctx, backup, target.Path); rerr != nil {
 			// The new binary is live and the backup is kept: report both, so
 			// neither the failed restore nor the backup is lost (0003-MADR B1).
 			return applyResult{backup: backup, renamed: true},
@@ -69,11 +70,11 @@ func commitReplacement(target Target, result applyResult) (pending string, err e
 	return "", nil
 }
 
-func rollbackReplacement(target Target, result applyResult) error {
+func rollbackReplacement(ctx context.Context, target Target, result applyResult) error {
 	if result.backup == "" {
 		return fmt.Errorf("selfupdate: no backup to restore")
 	}
-	if err := replacePath(result.backup, target.Path); err != nil {
+	if err := replacePath(ctx, result.backup, target.Path); err != nil {
 		return fmt.Errorf("selfupdate: restore backup: %w", err)
 	}
 	return syncDirFn(target.Dir)

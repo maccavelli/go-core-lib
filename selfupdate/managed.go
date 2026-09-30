@@ -130,7 +130,7 @@ func (s *managedSession) recover(parent context.Context, product string, applied
 		}
 	}
 	if applied.backup != "" {
-		if err := s.inner.rollback(applied); err != nil {
+		if err := s.inner.rollback(ctx, applied); err != nil {
 			recov = errors.Join(recov, err)
 		}
 	}

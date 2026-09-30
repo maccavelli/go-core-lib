@@ -76,10 +76,10 @@ func TestInstallSyncAndRollbackFailureReported(t *testing.T) {
 	setSeam(t, &syncDirFn, func(string) error { return syncErr })
 	real := replacePath
 	calls := 0
-	setSeam(t, &replacePath, func(oldpath, newpath string) error {
+	setSeam(t, &replacePath, func(ctx context.Context, oldpath, newpath string) error {
 		calls++
 		if calls == 1 {
-			return real(oldpath, newpath)
+			return real(ctx, oldpath, newpath)
 		}
 		return restoreErr
 	})
@@ -115,12 +115,12 @@ func TestManagedApplyFailureRetriesRollback(t *testing.T) {
 	})
 	real := replacePath
 	calls := 0
-	setSeam(t, &replacePath, func(oldpath, newpath string) error {
+	setSeam(t, &replacePath, func(ctx context.Context, oldpath, newpath string) error {
 		calls++
 		if calls == 2 {
 			return errors.New("injected restore failure")
 		}
-		return real(oldpath, newpath)
+		return real(ctx, oldpath, newpath)
 	})
 	_, err := sess.Install(context.Background(), InstallRequest{Product: "demo", Artifact: StagedArtifact{Path: path}})
 	if !errors.Is(err, ErrManagedInstall) {
@@ -190,7 +190,7 @@ func TestBackupCopyFallbackPreservesMode(t *testing.T) {
 func TestInstallFailureBeforeRenameRemovesStagingOnClose(t *testing.T) {
 	sess, exe := standaloneSession(t)
 	path := stageNew(t, sess)
-	setSeam(t, &replacePath, func(string, string) error { return errors.New("injected rename failure") })
+	setSeam(t, &replacePath, func(context.Context, string, string) error { return errors.New("injected rename failure") })
 	if _, err := sess.Install(context.Background(), InstallRequest{Product: "demo", Artifact: StagedArtifact{Path: path}}); err == nil {
 		t.Fatal("expected the rename failure")
 	}
@@ -323,7 +323,7 @@ func TestInstallInjectedFailures(t *testing.T) {
 			setSeam(t, &osChmod, func(string, os.FileMode) error { return failing })
 		}, "old-bytes", false},
 		{"rename", func(t *testing.T) {
-			setSeam(t, &replacePath, func(string, string) error { return failing })
+			setSeam(t, &replacePath, func(context.Context, string, string) error { return failing })
 		}, "old-bytes", false},
 		{"dir sync, restored", func(t *testing.T) {
 			setSeam(t, &syncDirFn, func(string) error { return failing })
