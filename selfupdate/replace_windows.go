@@ -71,7 +71,9 @@ func moveFileReplace(from, to string) error {
 		if last == nil {
 			return nil
 		}
-		if !isSharingViolation(last) || time.Now().After(deadline) {
+		// A running image transiently refuses replacement with access
+		// denied as well as a sharing violation (0003-MADR B11).
+		if !isBusyRunningImage(last) || time.Now().After(deadline) {
 			return last
 		}
 		time.Sleep(10 * time.Millisecond)

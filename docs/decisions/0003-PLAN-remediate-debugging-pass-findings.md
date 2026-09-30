@@ -541,3 +541,43 @@ The owner approved: "Proceed". This PLAN is `in-progress`.
   * Option 2 (move the running image aside first) was not chosen.
 * **Scope added.** `replace_windows.go` and `replace_native_test.go` in
   Phase 0b. Phase 4's B10 step still adds the `ctx` parameter.
+
+Commit: `11015fc`.
+
+#### Note (2026-09-29): an outside commit and push during Phase 0
+
+Commit `6b9fb99`, "docs(decisions): plan fixes for debugging-pass
+findings", was made in this clone at 23:12:19 under the owner's identity,
+not by this PLAN's executor. It holds the 0003 MADR and PLAN as they were
+before Phase 0, and a `docs/README.md` row. It and `004d13b` were pushed to
+`origin/main`.
+* That push's CI run `36667778889` concluded `success` on all three
+  operating systems.
+* So `TestNativeReplaceRunningCopy` passed on `windows-2025` for a second
+  time, while the Windows test host fails it most of the time. B11's
+  trigger therefore depends on the host.
+* Nothing was rewritten. `11015fc` builds on `6b9fb99`.
+
+### Phase 0b: Windows running-image replace, B11 (2026-09-29)
+
+* **Test tightened.** `TestNativeReplaceRunningCopy` keeps `Install`'s
+  error in its own variable (`installErr`), and now fails if a clean
+  `Install` (nil error, no pending backup) leaves anything but the new
+  bytes.
+  * The first draft reused `err`, which `os.ReadFile` then overwrote; it
+    was caught on reading and corrected before any run.
+* **Fail-first**, Windows host, working tree with only the test change, 10
+  runs without `-race` and 5 with: `pass=6 fail=9`, each failure
+  `replace_native_test.go:115: selfupdate: replace target: Access is denied.`.
+* **Fix.** `replace_windows.go` `moveFileReplace` retries while
+  `isBusyRunningImage(last)`. The `DefaultLockTimeout` deadline is
+  unchanged, and a comment cites B11.
+* **Proof,** Windows host, fixed tree:
+  * `native x20 -race: pass=20 fail=0`;
+  * then the full Windows gate: `go vet` 0, `go test -race` 0,
+    `refuse-existing-release_test.sh` 0, `check-workflow-gh-repo.sh` 0,
+    `verify-selfupdate-release_test.sh` 0; `overall=0`, `cleanup ok`.
+* **On this host:** `gofmt -l` empty. `CGO_ENABLED=0 GOOS=<t>` `go vet` and
+  `go test -c` pass for linux, darwin and windows. `make pre-add-check`
+  gives `47 file(s) clean`, `go test -race` passes, and
+  `go mod tidy -diff` exits 0.

@@ -107,16 +107,21 @@ func TestNativeReplaceRunningCopy(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	res, err := sess.Install(context.Background(), InstallRequest{
+	res, installErr := sess.Install(context.Background(), InstallRequest{
 		Product:  "helper",
 		Artifact: StagedArtifact{Path: path, Size: int64(len(replacement))},
 	})
-	if err != nil && res.PendingBackup == "" {
-		t.Fatal(err)
+	if installErr != nil && res.PendingBackup == "" {
+		t.Fatal(installErr)
 	}
 	got, err := os.ReadFile(exe)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// A clean Install must leave exactly the new bytes. The old bytes are
+	// acceptable only on the pending-backup path (0003-PLAN Phase 0b).
+	if installErr == nil && res.PendingBackup == "" && string(got) != string(replacement) {
+		t.Fatalf("Install succeeded but the target does not hold the new bytes (%d bytes)", len(got))
 	}
 	if string(got) != string(replacement) && string(got) != string(in) {
 		t.Fatalf("target is neither old nor new (%d bytes)", len(got))
