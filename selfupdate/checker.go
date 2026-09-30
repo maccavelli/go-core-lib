@@ -96,6 +96,16 @@ func (u *Updater) Checker() *Checker {
 // it reports availability as a value rather than as ErrUpdateAvailable. A
 // latest release older than the running one is ErrLatestOlder, as in Run.
 func (c *Checker) Check(ctx context.Context, cr CheckRequest) (Availability, error) {
+	req, err := c.prepare(cr)
+	if err != nil {
+		return Availability{}, err
+	}
+	return c.checkPrepared(ctx, req)
+}
+
+// prepare validates a CheckRequest as a check-only Request and normalizes
+// its platform. Errors are wrapped as Run wraps them.
+func (c *Checker) prepare(cr CheckRequest) (Request, error) {
 	req := Request{
 		Product:        cr.Product,
 		CurrentVersion: cr.CurrentVersion,
@@ -107,11 +117,15 @@ func (c *Checker) Check(ctx context.Context, cr CheckRequest) (Availability, err
 	if err := validateRequest(req, c.versions); err != nil {
 		if validateProduct(req.Product) != nil {
 			// An invalid product name is not safe to put in the prefix.
-			return Availability{}, err
+			return Request{}, err
 		}
-		return Availability{}, wrapRun(req, err)
+		return Request{}, wrapRun(req, err)
 	}
 	req.Platform = normalizePlatform(req.Platform)
+	return req, nil
+}
+
+func (c *Checker) checkPrepared(ctx context.Context, req Request) (Availability, error) {
 	rel, sel, op, err := c.discover(ctx, req)
 	if err != nil {
 		return Availability{}, wrapRun(req, err)

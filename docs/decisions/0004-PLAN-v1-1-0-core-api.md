@@ -1349,3 +1349,62 @@ the typed-nil `*os.File` case and the host-input property.
 * `make pre-add-check` passed on the three files.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`, including the five new tests.
+
+### Step 4: cached checks (2026-09-30)
+
+**What changed.**
+
+* `checkcache.go` adds `CheckRecord`, `CheckStore`, `ErrNoCheckRecord`,
+  `ErrCheckDeferred` (which wraps `ErrRateLimited`), `Checker.CheckCached`
+  and `NewFileCheckStore`. They follow the PLAN's rules: key match,
+  back-off, freshness, and `NotBefore` from `Reset` and `RetryAfter`, with
+  a one-minute default.
+* `Check` was split into `prepare`, which validates and normalizes, and
+  `checkPrepared`, so `CheckCached` shares them.
+* Load errors wrap both the cause and `ErrNoCheckRecord` with two `%w`
+  verbs (Go 1.20). errorlint refused the first draft's `%v`.
+
+**Tests** (`checkcache_test.go`). Ten `CheckCached` tests cover:
+
+* fresh hit, stale refresh, key change and clock skew;
+* rate limit with Reset, with RetryAfter (including "the later of the
+  two"), and with the default minute;
+* deferred with no network access;
+* a save error;
+* bad arguments.
+
+Six file-store tests: a byte-exact round trip with no temporary files left
+behind, corrupt as a miss, schema mismatch, mode 0600, replace, and
+absolute-path validation.
+
+**Mutation proofs.** Eight mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the key check is dropped | `a record for another running version was reused` |
+| `NotBefore` is ignored | `TestCheckCachedDeferredNoNetwork`: `… calls=[Latest]` |
+| the age comparison is inverted | `TestCheckCachedFreshHit`: `… calls=[Latest]` |
+| the one-minute default is removed | `NotBefore = 2026-09-30 12:00:00 +0000 UTC, want one minute ahead` |
+| the saved file is 0644 | `mode = -rw-r--r--, want 0600` |
+| the schema is not checked | `a schema-2 record loaded: <nil>` |
+| malformed JSON is not a miss | `body "not json": invalid character 'o' …` |
+| a fresh answer is not saved | `saves = []` |
+
+**Deviation D1 (2026-09-30): Step 4 mutation list.**
+
+* **Found.** The PLAN listed the mutation "`Save` renames without `Sync`
+  and skips the temp file", to be killed by a temp-name assertion. A
+  missing `fsync` leaves no observable trace in a test, so that mutation
+  cannot be killed.
+* **Decision.** It was replaced by two observable mutations, "the saved
+  file is 0644" and "malformed JSON is not a miss", and one more was added,
+  "a fresh answer is not saved". The temp file is still asserted: the round
+  trip checks that no temporary file is left.
+* **MADR.** No MADR change: nothing it states is affected.
+
+**Checks.**
+
+* `make pre-add-check` passed on the three files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, including `TestFileCheckStoreReplaces`
+  (rename over an existing file).
