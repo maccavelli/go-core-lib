@@ -126,7 +126,9 @@ the phase's paths, then `git commit --no-edit`. The global
    provenance comment, so that it says it was adapted from
    `go-llmprovider-sdk`'s script under
    `docs/decisions/0001-MADR-scaffold-shared-go-library.md`. Run
-   `shellcheck scripts/go-precheck.sh`.
+   `shellcheck scripts/go-precheck.sh`. *(Annotated 2026-09-29: this found a
+   pre-existing SC2001 note, fixed at the source. See Deviation D1 in the
+   execution record.)*
 5. Copy `.github/workflows/ci.yml`. Remove the `vet live-tagged tests` step.
    Add a Linux-only step that runs
    `go install golang.org/x/vuln/cmd/govulncheck@v1.7.0` and then
@@ -227,3 +229,115 @@ this PLAN's Phase 1 step 2, Phase 3 step 1, V1 and Rollout before approval.
 The owner approved the amended pair: "proceed". The MADR is `accepted` and
 this PLAN is `in-progress`. The two records are committed alone, under the
 bootstrap exception.
+
+Commit: `c08511c`.
+
+### Phase 1: agent rules and repository hygiene (2026-09-29)
+
+* `cmp` passes on the seven verbatim SDK files (`.claude/.gitignore`,
+  `.claude/rules/madr-and-plan-skill.md`,
+  `.grok/rules/madr-plan-before-mutating-work.md`, `.opencode/rules.md`,
+  `opencode.json`, `.gitignore`, `.markdownlint-cli2.jsonc`), and on
+  `LICENSE` against `magic-cli-remote`'s.
+* `diff` of `AGENTS.md` against the SDK's, read in full, shows four hunks
+  and no others. They are the intro, the Dependencies section, the removed
+  `mcplib` renumbering bullet, and the Live tests section replaced by the
+  "no packages" paragraph.
+* `markdownlint-cli2 AGENTS.md`: `Summary: 0 issues in 0 files`, exit 0.
+* Identifier scan over the ten files (the local account name, the short
+  hostname, `/Users/`, `/home/<lowercase>`): no match, exit 1.
+
+Commit: `53994bb`.
+
+### Phase 2: Go module, lint, pre-add gate and CI (2026-09-29)
+
+* **Step 1.** `go mod verify`: `all modules verified`, exit 0.
+  `go mod tidy -diff` and `go mod tidy`: exit 0, with
+  `go: warning: "all" matched no packages`. `go.mod` is `cmp`-identical
+  before and after tidy. No `go.sum` was created.
+* **Steps 2, 3 and 5.** `diff` against the SDK shows only the planned
+  changes:
+  * `.golangci.yml`: the one exclusion rule whose `path:` is the
+    application-filename list, 14 lines;
+  * `Makefile`: the two header-comment lines;
+  * `ci.yml`: the `vet live-tagged tests` step replaced by `govulncheck`
+    (`go install golang.org/x/vuln/cmd/govulncheck@v1.7.0`, then
+    `govulncheck ./...`, Linux only).
+
+  PyYAML loads `ci.yml` and `.golangci.yml`. `actionlint` is not installed,
+  so no workflow lint was run.
+* **Step 4.** Mode is `-rwxr-xr-x`. After D1, `diff` against the SDK's
+  `113f771` copy shows 16 changed lines, all of them in the provenance
+  comment. `shellcheck`: exit 0.
+* **Step 6, expected failures on the tree** (`make` exits 2 when its
+  recipe fails; the recipe's own status is shown):
+
+  | Target | Recipe exit | First message |
+  |---|---|---|
+  | `make test` | 1 | `go: warning: "./..." matched no packages` / `no packages to test` |
+  | `make vet` | 1 | `no packages to vet` |
+  | `make lint` | 5 | `level=error msg="Running error: context loading failed: no go files to analyze: …"` |
+  | `make vuln` | 2 | `govulncheck: no packages matched the provided patterns` |
+  | `make pre-add-check` | 0 | `go-precheck: no Go files to check.` |
+
+* **Step 7, first-fail experiment** on a scratch clone, with the Phase 2
+  files and a planted `probe` package:
+  * **(a)** An undocumented exported `PlantedUndocumented`:
+    `make pre-add-check` and `make lint` both failed with
+    `probe/probe.go:4:1: exported: exported function PlantedUndocumented should have comment or be unexported (revive)`.
+  * **(b)** The same file, badly formatted: `go-precheck.sh probe/probe.go`
+    exited 1 with `gofmt: these files are not formatted …` / `probe/probe.go`.
+  * **(c)** A documented, formatted `Planted()` with a passing test.
+    `make pre-add-check` gave `2 file(s) clean (gofmt, golangci-lint, go vet, go test, govulncheck)`,
+    `make lint` gave `0 issues.`, `make vuln` gave
+    `No vulnerabilities found.`, and `make vet`, `make test` and
+    `go mod tidy -diff` exited 0. No `go.sum` was created.
+  * **(d)** An undocumented exported function in `probe/client.go`. With
+    this repository's `.golangci.yml`, `make lint` failed with
+    `probe/client.go:3:1: exported: exported function PlantedClient should have comment or be unexported (revive)`.
+    With the SDK's unmodified `.golangci.yml`: `0 issues.`, exit 0.
+
+  The scratch clone was deleted afterwards.
+
+#### Deviation D1 (2026-09-29): shellcheck SC2001 in `go-precheck.sh`
+
+* **Found.** Step 4's `shellcheck scripts/go-precheck.sh` exited 1 with one
+  style note:
+  `echo "$unformatted" | sed 's/^/  /' >&2` — `SC2001 (style): See if you can use ${variable//search/replace} instead.`
+  It was pre-existing: the same line fails the same way in the copies in
+  `go-llmprovider-sdk`, `magic-cli-remote`, `ocp-login` and
+  `ocp-login-macos`. The `ocp-login` copies also had
+  `SC2181 (note)` on the golangci-lint exit-status check.
+* **Decision.** The owner: "Fix it everywhere. No new records. Just fix it."
+* **Done.**
+  * Every copy now uses `printf '%s\n' "$unformatted" | sed 's/^/  /' >&2`,
+    the idiom the script already uses for its other output. On the same
+    input its output is byte-identical to the old line.
+  * In the two `ocp-login` copies, the SC2181 check became
+    `if ! lint_out="$(… 2>&1)"; then`, the SDK script's own idiom.
+  * Commits, made with no new record in any repository, as the owner
+    directed:
+
+    | Repository | Branch | Commit |
+    |---|---|---|
+    | `go-llmprovider-sdk` | `main` | `113f771` |
+    | `magic-cli-remote` | `master` | `7432f111` |
+    | `ocp-login` | `main` | `1c7e8e3` |
+    | `ocp-login-macos` | `main` | `09d9929` |
+
+  * Both `ocp-login` repositories had an unrelated feature branch checked
+    out, with a clean tree. Their fixes were committed on `main` through a
+    temporary `git worktree`, which was then removed. The checked-out
+    branches were not touched.
+  * Nothing was pushed.
+* **Verified.**
+  * `shellcheck` exits 0 on all five copies.
+  * With an unformatted planted file, every copy exits 1 and lists the file
+    under `gofmt:`, indented two spaces.
+  * With a stub `golangci-lint` that exits 1, both `ocp-login` copies exit 1
+    and print the stub's line under `golangci-lint:`. With a stub that exits
+    0, they report the file clean and exit 0.
+* **Scope added to Phase 2.** None in this repository beyond the fixed line.
+  The four commits above are outside this repository.
+
+Commit: this Phase 2 commit.
