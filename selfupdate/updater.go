@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"time"
 )
 
 // errNotCommitted reports an Installer that returned neither a committed
@@ -52,6 +53,9 @@ func New(cfg Config) (*Updater, error) {
 	if err := cfg.Limits.valid(); err != nil {
 		return nil, err
 	}
+	if cfg.ProgressInterval < 0 {
+		return nil, fmt.Errorf("selfupdate: progress interval must not be negative")
+	}
 	transformer := cfg.Transformer
 	if transformer == nil {
 		transformer = noopTransformer{}
@@ -67,6 +71,7 @@ func New(cfg Config) (*Updater, error) {
 		reporter:    cfg.Reporter,
 		confirmer:   cfg.Confirmer,
 		limits:      cfg.Limits,
+		progress:    cfg.ProgressInterval,
 	}, nil
 }
 
@@ -79,7 +84,18 @@ func (u *Updater) Run(ctx context.Context, req Request) (Result, error) {
 	return u.execute(ctx, req)
 }
 
-func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
+func (u *Updater) execute(ctx context.Context, req Request) (res Result, err error) {
+	// A failed run ends with EventFailed, except when the product name is
+	// not safe to report or check mode found an update (0004-MADR G5, A7).
+	defer func() {
+		if err == nil || errors.Is(err, ErrUpdateAvailable) || validateProduct(req.Product) != nil {
+			return
+		}
+		u.reportOutcome(ctx, Event{
+			Kind: EventFailed, Product: req.Product, Current: req.CurrentVersion,
+			Target: res.TargetVersion, Asset: res.AssetName, Detail: failureClass(err),
+		})
+	}()
 	if err := validateRequest(req, u.versions); err != nil {
 		if validateProduct(req.Product) != nil {
 			// An invalid product name is not safe to put in the prefix.
@@ -141,6 +157,10 @@ func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
 		}
 		if !ok {
 			result.Declined = true
+			u.reportOutcome(ctx, Event{
+				Kind: EventDeclined, Product: req.Product, Current: req.CurrentVersion,
+				Target: rel.Tag, Asset: sel.Binary.Name,
+			})
 			return result, nil
 		}
 	}
@@ -192,13 +212,21 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	if err != nil {
 		return resultOut, wrapRun(req, err)
 	}
-	releaseDigest, err := downloadAsset(ctx, u.source, rel, sel.Binary, f, u.limits.Executable)
+	progress := u.newProgress(ctx, req, rel, sel)
+	var staging io.Writer = f
+	if progress != nil {
+		staging = &progressWriter{w: f, done: progress.written}
+	}
+	releaseDigest, err := downloadAsset(ctx, u.source, rel, sel.Binary, staging, u.limits.Executable)
 	closeErr := f.Close()
 	if err != nil {
 		return resultOut, wrapRun(req, errors.Join(err, closeErr))
 	}
 	if closeErr != nil {
 		return resultOut, wrapRun(req, closeErr)
+	}
+	if progress != nil {
+		progress.finish()
 	}
 	ghDigest := ""
 	if sel.Binary.Digest != "" {
@@ -254,6 +282,9 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	resultOut.ServiceInstalled = installed.ServiceInstalled
 	resultOut.ServiceWasRunning = installed.ServiceWasRunning
 	resultOut.PendingBackup = installed.PendingBackup
+	if installed.RolledBack {
+		u.reportOutcome(ctx, Event{Kind: EventRolledBack, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name})
+	}
 	if !installed.Applied {
 		if instErr == nil {
 			instErr = errNotCommitted
@@ -314,6 +345,106 @@ func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, se
 
 func (u *Updater) report(ctx context.Context, ev Event) error {
 	return u.reporter.Report(ctx, ev)
+}
+
+// reportOutcome delivers an advisory event: one that reports something
+// that has already happened. It is delivered even after the caller's
+// cancellation, and a reporter error on it is ignored (0004-MADR A7).
+func (u *Updater) reportOutcome(ctx context.Context, ev Event) {
+	advisory(u.reporter.Report(context.WithoutCancel(ctx), ev))
+}
+
+// advisory is where the error from reporting an advisory event goes:
+// progress and outcome events never change a run's result (0004-MADR
+// amendments A1 and A7), so the error is dropped here, on purpose.
+func advisory(_ error) {}
+
+// failureClasses maps a run's error to EventFailed's Detail. The first
+// match wins, so cancellation outranks whatever it interrupted.
+var failureClasses = []struct {
+	err   error
+	class string
+}{
+	{context.Canceled, "canceled"},
+	{context.DeadlineExceeded, "deadline-exceeded"},
+	{ErrConfirmationRequired, "confirmation-required"},
+	{ErrForceRequired, "force-required"},
+	{ErrLatestOlder, "latest-older"},
+	{ErrMutableRelease, "mutable-release"},
+	{ErrRateLimited, "rate-limited"},
+	{ErrUnsupportedPlatform, "unsupported-platform"},
+	{ErrConcurrentUpdate, "concurrent-update"},
+	{ErrManagedInstall, "managed-install"},
+	{ErrIntegrity, "integrity"},
+}
+
+func failureClass(err error) string {
+	for _, c := range failureClasses {
+		if errors.Is(err, c.err) {
+			return c.class
+		}
+	}
+	return "error"
+}
+
+// downloadProgress throttles EventProgress for one binary download
+// (0004-MADR G5, amendment A1).
+type downloadProgress struct {
+	u        *Updater
+	ctx      context.Context
+	template Event
+	last     time.Time
+}
+
+// newProgress returns nil when progress is disabled. Otherwise it reports
+// the first event, at zero bytes.
+func (u *Updater) newProgress(ctx context.Context, req Request, rel Release, sel Selection) *downloadProgress {
+	if u.progress <= 0 {
+		return nil
+	}
+	p := &downloadProgress{u: u, ctx: ctx, template: Event{
+		Kind: EventProgress, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name, Total: sel.Binary.Size,
+	}}
+	p.emit(0)
+	p.last = timeNow()
+	return p
+}
+
+func (p *downloadProgress) emit(done int64) {
+	ev := p.template
+	ev.Bytes = done
+	// Progress is advisory: a reporter error never fails the download.
+	advisory(p.u.reporter.Report(p.ctx, ev))
+}
+
+// written reports the running total, at most once per interval. The
+// total itself is left to finish.
+func (p *downloadProgress) written(done int64) {
+	if done >= p.template.Total {
+		return
+	}
+	if now := timeNow(); now.Sub(p.last) >= p.u.progress {
+		p.last = now
+		p.emit(done)
+	}
+}
+
+func (p *downloadProgress) finish() {
+	p.emit(p.template.Total)
+}
+
+// progressWriter counts bytes written to the staging file.
+type progressWriter struct {
+	w    io.Writer
+	n    int64
+	done func(int64)
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	p.n += int64(n)
+	p.done(p.n)
+	return n, err
 }
 
 // hashAndValidateStaging returns the transformed staging file's digest and

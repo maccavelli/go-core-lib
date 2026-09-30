@@ -81,7 +81,7 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 		if rerr := s.rollbackInRoot(applied); rerr != nil {
 			return InstallResult{Target: s.target.Path, Backup: applied.backup, Applied: true}, errors.Join(err, rerr)
 		}
-		return InstallResult{Target: s.target.Path}, err
+		return InstallResult{Target: s.target.Path, RolledBack: true}, err
 	}
 	pending, err := commitReplacement(s.target, applied)
 	if err != nil {

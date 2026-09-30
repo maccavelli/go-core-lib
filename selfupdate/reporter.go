@@ -13,12 +13,17 @@ type textReporter struct {
 	w io.Writer
 }
 
-// NewTextReporter writes stable plain-text progress without ANSI escapes.
+// NewTextReporter writes stable plain-text progress without ANSI escapes. It
+// writes one line per event, and skips EventProgress (0004-MADR amendment
+// A8).
 func NewTextReporter(w io.Writer) Reporter {
 	return textReporter{w: w}
 }
 
 func (r textReporter) Report(_ context.Context, ev Event) error {
+	if ev.Kind == EventProgress {
+		return nil
+	}
 	if r.w == nil {
 		return fmt.Errorf("selfupdate: reporter writer is nil")
 	}

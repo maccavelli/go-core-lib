@@ -338,6 +338,9 @@ type InstallResult struct {
 	// PendingBackup is the path of the Windows running-image backup when it
 	// could not be removed after commit.
 	PendingBackup string
+	// RolledBack reports that the installer restored the previous binary
+	// itself after a failure.
+	RolledBack bool
 }
 
 // Installer resolves the target and begins a locked install session.
@@ -422,6 +425,24 @@ const (
 	EventComplete
 )
 
+// Event kinds added in v1.1.0, appended so every earlier value keeps its
+// number (0004-MADR G5).
+const (
+	// EventProgress reports download progress: Bytes so far of Total. It
+	// is emitted only when Config.ProgressInterval is positive, and a
+	// reporter error on it is ignored.
+	EventProgress EventKind = iota + EventComplete + 1
+	// EventDeclined is emitted when the Confirmer declines. A reporter
+	// error on it is ignored.
+	EventDeclined
+	// EventFailed is the last event of a failed run; Detail is the error
+	// class. A reporter error on it is ignored.
+	EventFailed
+	// EventRolledBack is emitted when the installer restored the previous
+	// binary itself. A reporter error on it is ignored.
+	EventRolledBack
+)
+
 // String implements fmt.Stringer.
 func (k EventKind) String() string {
 	switch k {
@@ -445,6 +466,14 @@ func (k EventKind) String() string {
 		return "installing"
 	case EventComplete:
 		return "complete"
+	case EventProgress:
+		return "progress"
+	case EventDeclined:
+		return "declined"
+	case EventFailed:
+		return "failed"
+	case EventRolledBack:
+		return "rolled-back"
 	default:
 		return "eventkind(" + itoa(uint64(k)) + ")"
 	}
@@ -466,6 +495,9 @@ type Event struct {
 	Bytes int64
 	// Detail is additional sanitized text.
 	Detail string
+	// Total is the advertised byte length for EventProgress, and zero
+	// otherwise.
+	Total int64
 }
 
 // Reporter receives structured progress. Implementations must not read or
@@ -544,6 +576,10 @@ type Config struct {
 	// take effect only through the ReleaseSource's own limits, for example
 	// GitHubOptions.Limits.
 	Limits Limits
+	// ProgressInterval is the minimum time between EventProgress reports
+	// during the binary download. Zero reports no progress (0004-MADR
+	// amendment A1); a negative value is invalid.
+	ProgressInterval time.Duration
 }
 
 // Updater is the coordinator. Unexported collaborator fields are populated
@@ -559,4 +595,5 @@ type Updater struct {
 	confirmer   Confirmer
 	limits      Limits
 	running     atomic.Bool
+	progress    time.Duration
 }

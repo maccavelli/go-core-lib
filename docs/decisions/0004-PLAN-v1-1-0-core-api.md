@@ -1408,3 +1408,95 @@ absolute-path validation.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`, including `TestFileCheckStoreReplaces`
   (rename over an existing file).
+
+### Step 5: events and structured output (2026-09-30)
+
+**What changed.**
+
+* **`types.go`.** `EventProgress` (10), `EventDeclined` (11), `EventFailed`
+  (12) and `EventRolledBack` (13) are appended in a second const block,
+  with their names. `Event.Total`, `Config.ProgressInterval` and
+  `InstallResult.RolledBack` are appended last.
+* **`updater.go`.**
+  * `New` refuses a negative interval.
+  * `execute`'s deferred `EventFailed` carries the class from
+    `failureClasses`.
+  * `EventDeclined` is reported on a decline, and `EventRolledBack` when
+    `Install` reports it.
+  * Progress runs through `downloadProgress`: a first event at 0, events
+    throttled by `timeNow`, and a final event at `Total`. A
+    `progressWriter` wraps only the staging file, so the manifest download
+    and `copyLimited`/`downloadAsset` are unchanged.
+* **`session.go`** (the R3 rollback) and **`managed.go`** (a recovery
+  rollback that succeeded) set `RolledBack`.
+* **Reporters.** `NewTextReporter` skips `EventProgress` (A8). The new
+  `jsonreporter.go` and `document.go` add `NewJSONReporter` and
+  `Result.Document`.
+* **Two refinements the PLAN did not spell out, both within A7.**
+  * Outcome events are reported on `context.WithoutCancel`, so a
+    cancelled run still delivers its `EventFailed`.
+  * Advisory reporter errors go to `advisory(error)`, a documented sink.
+    The repository's errcheck sets `check-blank: true`, which refuses
+    `_ =`, and the setting stays.
+* **Kept private.** The first draft exported a `ResultDocumentSchema`
+  constant that the PLAN's API does not list. It is now unexported, so
+  the surface is exactly as approved.
+* **Existing tests.** None changed. `calls()` filters events out, and no
+  existing test asserted a failure-path event sequence, so the appended
+  events broke nothing (rule 3).
+
+**Tests** (`events_test.go`).
+
+* `TestEventKindValues` pins 0–13.
+* `TestProgressEvents` uses a one-byte source and a stepping clock. It
+  expects 10 events for 9 bytes when every write passes the interval, and
+  exactly the first and final events when throttled. It also checks the
+  events sit between downloading-binary and verified.
+* `TestProgressDisabledByDefault`, `TestProgressIntervalNegativeRejected`
+  and `TestProgressReporterErrorIgnored`.
+* `TestDeclinedEvent`, where the reporter errors on declined.
+* `TestFailureClass` covers every row, and cancellation wrapping
+  integrity.
+* `TestFailedEventClasses` covers a mutable release, check mode finding
+  an update (no event), and an unsafe product (no events).
+* `TestFailedEventReporterErrorIgnored` and `TestRolledBackEvent`
+  (rolled-back, then failed).
+* `TestInstallersReportRolledBack` covers managed recovery and the
+  standalone swap; the swap is refused and logged on Windows.
+* `TestTextReporterSkipsProgress`, `TestJSONReporterLines` (byte-exact, one
+  `Write` per event) and `TestResultDocumentJSON` (byte-exact).
+
+**Mutation proofs.** Fifteen mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| progress with a zero interval | `progress reported with a zero interval: […]` |
+| no final progress | `9 progress events for 9 bytes …; want 10` |
+| progress not throttled | `throttled progress = [ten events], want only the first and final events` |
+| `EventFailed` on update-available | `check mode reported failed: [… failed]` |
+| integrity above canceled | `TestFailureClass`: `context canceled` classed wrongly |
+| text reporter prints progress | `text = "selfupdate: progress product=demo bytes=5\n…"` |
+| JSON drops the kind value | `TestJSONReporterLines` mismatch |
+| a progress reporter error surfaces | panic: `report failed` |
+| declined renumbered (a reserved constant inserted) | `kind 11: value 12, name "declined"` |
+| no `EventDeclined` | `last event = verified, want declined` |
+| an outcome reporter error surfaces | panic: `report failed` |
+| no `EventRolledBack` | `events = […installing failed], want rolled-back then failed` |
+| managed recovery without `RolledBack` | `managed: res={… RolledBack:false}` |
+| standalone swap without `RolledBack` | `standalone swap rollback: {… RolledBack:false}` |
+| `Document` drops `Applied` | `TestResultDocumentJSON` mismatch |
+
+Two first drafts were invalid mutations and were rewritten:
+
+* **"JSON drops kind via `omitempty`"** survived, because a kind name is
+  never empty, so the mutation changed nothing observable. It now removes
+  the value.
+* **"Declined renumbered via `= 20`"** did not compile: the explicit value
+  repeats down the const block and duplicates `switch` cases. It now
+  inserts a reserved constant.
+
+**Checks.**
+
+* `make pre-add-check` passed on the eight files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.

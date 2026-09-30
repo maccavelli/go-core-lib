@@ -139,6 +139,8 @@ func (s *managedSession) recover(parent context.Context, product string, applied
 			if _, serr := os.Lstat(applied.backup); serr == nil {
 				result = InstallResult{Target: s.inner.target.Path, Backup: applied.backup}
 			}
+		} else {
+			result = InstallResult{Target: s.inner.target.Path, RolledBack: true}
 		}
 	}
 	if restart {
