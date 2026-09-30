@@ -517,3 +517,16 @@ Commit: `3700381` (`370038110816f9f97a4f2edb2c658ff0f7abd16d`).
     macOS arm64 runners. It is informational; the job passed.
 * **Steps 3–5** (tag `v1.0.0` on `3700381`, tag CI, proxy check, filling in
   the guide's SHA, closing this PLAN) wait for the owner's ask to tag.
+
+#### Entry 2026-09-29: steps 3–5 wait for 0003
+
+The owner decided to fix every finding of
+[0003-MADR-remediate-debugging-pass-findings.md](0003-MADR-remediate-debugging-pass-findings.md)
+before the first tag (0002-MADR, "Amendment 2026-09-29" under "More
+Information").
+
+* ~~Tag `v1.0.0` on `3700381`.~~ `v1.0.0` goes on the commit that
+  completes 0003's PLAN.
+* Before the tag, the 0003 commits are pushed on the owner's ask, and the
+  push's CI must pass on all three operating systems.
+* Steps 3–5 resume only when 0003's PLAN is `complete`.

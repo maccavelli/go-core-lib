@@ -148,7 +148,9 @@ Evidence gathered for this record (read-only, 2026-09-29, `mcplib` at
 Chosen option: "A", because it is the only option that puts the updater and
 its one supported publication path in the same repository, under one tag.
 It follows the owner's no-history decision, and it moves nothing that
-cannot run. The cost is one deleted line in one consumer.
+cannot run. ~~The cost is one deleted line in one consumer.~~ *Corrected
+2026-09-29 (0003-MADR D2): every one of the six consumers passes
+`bridge-release`, five as `false`, and each deletes that line.*
 
 ### 1. What moves
 
@@ -290,15 +292,18 @@ macOS and Windows.
 * Good, because the updater and its publication workflow version together,
   in a repository whose only dependencies are three `golang.org/x` modules.
 * Good, because consumers change one import path and one `uses:` line.
-  `magic-cli-remote` also deletes its `bridge-release` line.
+  ~~`magic-cli-remote` also deletes its `bridge-release` line.~~
+  *Corrected 2026-09-29 (0003-MADR D2): all six consumers delete their
+  `bridge-release` line.*
 * Good, because four Windows-only defects that `mcplib` never linted are
   fixed, and cross-target lint keeps new ones out.
 * Good, because the same-code claim is checked: a normalised diff, a
   `go doc` diff, and identical coverage.
 * Neutral, because `go.sum` and the three pins are exactly `mcplib`'s.
 * Bad, because without history, `git blame` here starts at the copy. The
-  history stays readable in `mcplib` at `v1.6.0`, and the first commit
-  names it.
+  history stays readable in `mcplib` at `v1.6.0`, ~~and the first commit
+  names it~~ *and the PLAN's execution record and `docs/architecture.md`
+  name it (corrected 2026-09-29, 0003-MADR D12; see the §2 amendment)*.
 * Bad, because a module requiring `go-core-lib` must be at `go 1.27.1`.
   Every consumer is at 1.26.6 and must move, as each already must for
   `go-llmprovider-sdk` under `magic-cli-remote` 0169 D2.
@@ -335,8 +340,10 @@ macOS and Windows.
 * Good, because nothing moves that can only fail.
 * Good, because the package and its publication path share one tag and one
   CI.
-* Bad, because `magic-cli-remote` must delete its `bridge-release` line.
-  Passing an input a called workflow does not define is an error.
+* Bad, because ~~`magic-cli-remote` must delete its `bridge-release`
+  line~~ *every consumer must delete its `bridge-release` line (corrected
+  2026-09-29, 0003-MADR D2)*. Passing an input a called workflow does not
+  define is an error.
 
 ### B. Keep `bridge-release`
 
@@ -371,6 +378,15 @@ macOS and Windows.
 * `magic-cli-remote`
   `docs/decisions/0169-MADR-standardize-toolchains-on-current-supported-advisory-free-releases.md`
   D2: Go 1.27.1 across the fleet.
+* Amendment 2026-09-29: `v1.0.0` includes the fixes of
+  [0003-MADR-remediate-debugging-pass-findings.md](0003-MADR-remediate-debugging-pass-findings.md).
+  The owner decided to fix every debugging-pass finding before the first
+  tag. `v1.0.0` is therefore `mcplib` `v1.6.0` plus §3 plus 0003's fixes,
+  not `v1.6.0` plus §3 alone.
+  * The exported API is still unchanged: G-api may differ only in doc
+    comments.
+  * G-diff's baseline grows by every 0003 change.
+  * §8's tag waits for 0003's PLAN to be `complete`.
 * Owner's decision (2026-09-29): "Proceed, drop bridge release and fix
   windows findings". Option A is accepted as written, including §3's
   `bridge-release` removal and the four Windows fixes.

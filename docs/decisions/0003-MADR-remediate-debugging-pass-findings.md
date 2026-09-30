@@ -53,6 +53,7 @@ three targets; CI was green on `3700381` for Linux, macOS and Windows.
 | ID | Where | Finding | Evidence |
 |---|---|---|---|
 | B1 | `replace_unix.go:42-45`, `replace_windows.go:49-51`, `session.go:72-75`, `managed.go:84-86` | Suppose the post-rename directory sync fails **and** the rollback rename fails. The rollback error `rerr` is discarded, and `Install` returns `Applied:false` with only the sync error. Meanwhile the new binary is live and the backup leaks. The managed path then calls `recover` with `applyResult{}`, so it does not know a backup exists. | R: `res={… Applied:false} err=selfupdate: sync directory: injected dir sync failure`, `target content="new-bytes"`, `.demo.selfupdate-bak-*` left in the directory |
+| B11 | `replace_windows.go:74,85-87` | *Added 2026-09-29 by 0003-PLAN deviation D1, found by the Windows baseline run.* Replacing a **running** executable on Windows fails most of the time with `selfupdate: replace target: Access is denied.`. `moveFileReplace` retries only on `ERROR_SHARING_VIOLATION`, but a running image transiently returns `ERROR_ACCESS_DENIED`, which the package's own `isBusyRunningImage` already treats as busy. Self-update of the running program is the package's main use. Present in `mcplib` `v1.6.0`. | R: on the Windows test host, `TestNativeReplaceRunningCopy` at `004d13b` failed 12 of 15 runs (with and without `-race`; Defender real-time protection off). With `isBusyRunningImage` in the retry condition, on a scratch copy, 15 of 15 passed |
 | B2 | `managed.go:113-131` | Recovery (`Restore`, `Start`, `WaitHealthy`) runs on the caller's `ctx`. When the failure *was* the deadline or a cancellation, the restart fails immediately, and a service that was running is left stopped. | R: `restart attempt (start #2) ran on a cancelled ctx -> left down` |
 
 ### Medium
@@ -166,7 +167,8 @@ three targets; CI was green on `3700381` for Linux, macOS and Windows.
 
 Chosen option: "B. Fix everything before v1.0.0", because the owner decided
 so on 2026-09-29: "We will fix them all." That covers all 41 findings and
-the four test-gap groups. `v1.0.0` is tagged only when none is open.
+the four test-gap groups, and B11, found during execution and added on the
+owner's instruction ("Option 1 fix it"). That makes 42 findings. `v1.0.0` is tagged only when none is open.
 
 *The first draft of this record, the same day, proposed option A: the high
 and medium findings before the tag, the rest after. Option A is kept below

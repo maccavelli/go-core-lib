@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-09-29
 associated-madr: "0003-MADR-remediate-debugging-pass-findings.md"
 ---
@@ -12,7 +12,8 @@ Associated MADR: [0003-MADR-remediate-debugging-pass-findings.md](0003-MADR-reme
 Every finding in the MADR's tables is closed:
 
 * all 41 findings: A1, A3, A5–A8, A10, A11 (A2 is C1, A9 is C9); B1–B8
-  and B10; C1–C12 and C14; D1–D9, D11 and D12;
+  and B10; C1–C12 and C14; D1–D9, D11 and D12. Also B11, added by
+  deviation D1, for 42;
 * the four test-gap groups A4, B9, C13 and D10.
 
 Each fix has evidence in the execution record, and `v1.0.0` can then be
@@ -27,6 +28,7 @@ Phase 6.
 | Phase | Area | Findings |
 |---|---|---|
 | 0 | records | D2, D12, and 0002's amendment |
+| 0b | Windows running-image replace (deviation D1) | B11 |
 | 1 | coordinator and confirmer | C1–C14 (C9 = A9), C13 |
 | 2 | network and integrity | A1 with A5, A2 (= C1 at source), A3, A6, A7, A8, A10, A11, A4 |
 | 3 | install path, portable | B1, B2, B3, B4, B5, B8, B10 (directory identity), B9 |
@@ -118,6 +120,27 @@ Phase 6.
    accordingly. Add a dated entry to 0002-PLAN Phase 6: steps 3–5 wait for
    this PLAN to be `complete`.
 5. Commit the records.
+
+### Phase 0b: Windows running-image replace (B11; added by deviation D1)
+
+This phase runs first, because the Windows gate cannot pass until B11 is
+fixed.
+
+1. In `moveFileReplace`, retry while `isBusyRunningImage(last)` (a
+   sharing violation **or** access denied), within the existing
+   `DefaultLockTimeout` deadline. Taking the caller's `ctx` is B10's change
+   and stays in Phase 4.
+2. Tighten `TestNativeReplaceRunningCopy`: a nil `Install` error must leave
+   exactly the new bytes at the target. The old-bytes allowance stays only
+   for the pending-backup path.
+3. **Proof on the Windows host.**
+   * The tightened test fails at least once in 10 runs on the unchanged
+     code.
+   * With the fix, `-race` included, it passes **20 of 20** runs.
+   * The full Windows gate passes.
+4. On this host: `CGO_ENABLED=0 GOOS=windows go vet` and `go test -c`,
+   three-target lint, and `go test -race`.
+5. Commit.
 
 ### Phase 1: coordinator and confirmer (`updater.go`, `confirmer.go`, `types.go`, `example_test.go`)
 
@@ -458,4 +481,63 @@ shell turned out to be Git Bash, not PowerShell. The PLAN and MADR were
 amended to use it (the Windows gate, Phase 0 baseline, Phase 4 step 5,
 and V6).
 
-Not started. Awaiting the owner's approval of this PLAN.
+### Phase 0: records (2026-09-29)
+
+The owner approved: "Proceed". This PLAN is `in-progress`.
+
+* **Windows baseline** on `004d13b`, the pushed code. It ran on the
+  Windows test host from a `git archive`, with a scratch runner script that
+  is not committed:
+  * `go vet ./...`: exit 0.
+  * The listed Windows tests pass: `TestExactAssetNameWindowsExtension`,
+    `TestWindowsCleanupReceiptRoundTrip`,
+    `TestWindowsCleanupReceiptDigestMismatch`,
+    `TestIsUnsupportedDirSyncAccessDenied`,
+    `TestBusyRunningImageIncludesAccessDenied`.
+  * Under the host's bash, `refuse-existing-release_test.sh` gives
+    `6 passed, 0 failed`, `check-workflow-gh-repo.sh` gives `ok`, and
+    `verify-selfupdate-release_test.sh` gives `all fixtures passed` (the
+    host has `python3`).
+  * **`go test -race -count=1 ./...` failed:**
+    `replace_native_test.go:115: selfupdate: replace target: Access is denied.`
+    in `TestNativeReplaceRunningCopy`. That led to D1.
+  * The remote directory was removed after every run (`cleanup ok`).
+* **D12.** `docs/README.md`'s stale "fail until the first package lands"
+  row is replaced by a row for 0001 §6 as history, and a row for this
+  record is added. 0002-MADR's "the first commit names it" is struck and
+  annotated.
+* **D2.** 0002-MADR's three "one consumer" statements are struck and
+  annotated: all six consumers delete `bridge-release`.
+* **0002 amendment.** 0002-MADR "More Information" has a dated amendment:
+  `v1.0.0` includes 0003's fixes, the API is unchanged, G-diff grows, and
+  §8 waits. 0002-PLAN Phase 6 has a dated entry: `v1.0.0` goes on the
+  commit that completes this PLAN, not on `3700381`.
+
+#### Deviation D1 (2026-09-29): B11, running-image replace fails on Windows
+
+* **Found** by the Phase 0 baseline, and pre-existing: the code is
+  `mcplib` `v1.6.0`'s.
+  * `TestNativeReplaceRunningCopy` failed on the Windows host in 3 of 6
+    diagnostic runs, and then in **12 of 15** runs (10 without `-race`, 5
+    with), always
+    `selfupdate: replace target: Access is denied.`.
+  * Host facts: Defender real-time protection `False`; Windows
+    `10.0.26200.0`.
+  * The same package passed the `windows-2025` CI leg once, on
+    `3700381`. Whether that was chance or a build difference was not
+    established.
+* **Cause.** `moveFileReplace` (`replace_windows.go:74`) retries only on
+  `ERROR_SHARING_VIOLATION`. A running image transiently returns
+  `ERROR_ACCESS_DENIED`, which `isBusyRunningImage` (`:85`) already
+  classifies as busy.
+* **Experiment,** on a scratch copy only: the retry condition changed to
+  `isBusyRunningImage(last)`, with the deadline unchanged. The result was
+  **15 of 15** passes, against 3 of 15 unchanged, on the same host in the
+  same session.
+* **Owner's decision:** "Option 1 fix it".
+  * B11 is added to the MADR (High).
+  * Phase 0b is added before Phase 1, so the Windows gate can pass in
+    every later phase.
+  * Option 2 (move the running image aside first) was not chosen.
+* **Scope added.** `replace_windows.go` and `replace_native_test.go` in
+  Phase 0b. Phase 4's B10 step still adds the `ctx` parameter.
