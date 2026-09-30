@@ -1,0 +1,4 @@
+selfupdate: resolving-target product=demo current=v1.0.0
+selfupdate: fetching-release product=demo current=v1.0.0
+selfupdate: selected product=demo current=v1.0.0 target=v1.1.0 asset=demo-linux-amd64
+selfupdate: declined product=demo current=v1.0.0 target=v1.1.0 asset=demo-linux-amd64

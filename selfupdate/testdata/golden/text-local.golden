@@ -1,0 +1,3 @@
+selfupdate: resolving-target product=demo current=dev
+selfupdate: fetching-release product=demo current=dev
+selfupdate: selected product=demo current=dev target=v1.1.0 asset=demo-linux-amd64 local build: apply requires --force

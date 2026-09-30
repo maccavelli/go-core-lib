@@ -1960,3 +1960,109 @@ On the Windows host, two more:
 * `make pre-add-check` passed on the eight files.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
+
+### Step 11: `selfupdatetest` and golden output (2026-09-30)
+
+**What changed.**
+
+* **`selfupdate/selfupdatetest/selfupdatetest.go`** (new, standard library
+  only) has the PLAN's API.
+  * `NewRelease` makes an immutable release with one binary per platform
+    and a `SHA256SUMS` in platform order.
+  * `FakeSource` assigns release and asset IDs from one counter, so every
+    ID is unique. It records `Latest`, `ByTag <tag>` and
+    `OpenAsset <name>`, and honours a cancelled context.
+  * `RecordingReporter` works as a zero value.
+  * `ScriptedConfirmer` fails a prompt past its script, and `Err` wins over
+    `Answers`.
+  * The fakes are safe for concurrent use.
+  * The manifest's name is an unexported constant: the PLAN's API does not
+    list it.
+  * The private lookup is named `lookup`, because `revive`'s
+    `confusing-naming` refused `byTag` beside `ByTag`.
+* **`selfupdate/selfupdatetest/githubserver.go`** (new). `GitHubServer`
+  runs two `httptest.NewTLSServer` origins.
+  * The API origin serves `releases/latest`, `releases/tags/{tag}` and
+    `releases/assets/{id}`. An asset request is a 302 to
+    `/download/{id}` on the asset origin.
+  * `latest` is the last release that is neither a draft nor a
+    prerelease, as on GitHub. The PLAN did not specify this rule.
+  * `Client` trusts both certificates, with TLS 1.2 at least.
+  * `RateLimit(status, header)` fails later API requests until it is
+    called with a zero status. `TruncateAssets` advertises the full
+    `Content-Length` and sends half the body.
+  * `Requests` logs host, path and whether `Authorization` was present,
+    for both origins. `t.Cleanup` closes both servers and the client's
+    idle connections.
+* **Golden files.** `selfupdate/testdata/golden/` holds the twelve
+  `{text,jsonl}-{upgrade,check,local,failed-integrity,declined,dry-run}.golden`
+  files.
+  * Each is exactly what the reporter wrote during one `Run` through
+    `FakeSource`. Exit codes and errors are asserted in the test, not
+    stored in the file.
+  * The platform is fixed at `linux/amd64` and the bodies are fixed, so the
+    files hold no path, time or host detail and are identical on every OS.
+  * The existing `* text=auto eol=lf` in `.gitattributes` keeps them LF on
+    a Windows CI checkout; `git check-attr` reports `eol: lf` for them.
+  * All twelve were read in full before being committed.
+
+**Tests.**
+
+* **`selfupdatetest/selfupdatetest_test.go`:**
+  * `TestNewReleaseDigests`, `TestFakeSource`, `TestRecordingReporter`
+    and `TestScriptedConfirmer`.
+  * `TestGitHubServer`: latest, tag and 404; the asset 302 to another
+    origin; the logged `Authorization`; truncation reaching
+    `io.ErrUnexpectedEOF`; a 429 with `Retry-After`; and clearing the
+    limit.
+* **`selfupdate/e2e_github_test.go`** (`selfupdate_test`). A full `Run`
+  uses `NewGitHubSource` with a token against `GitHubServer`, and a
+  standalone installer whose target is a plain temporary file. It asserts:
+  * `ExitCode` 0 and the new bytes;
+  * `Authorization` on every API request, and on no asset-origin request;
+  * exactly one cross-origin hop for each of the two asset requests.
+* **`selfupdate/golden_test.go`** (`selfupdate_test`): `TestGolden`, six
+  cases. `-update` rewrites the files.
+
+**Lint.** The first pre-add run failed `bodyclose` seven times in
+`TestGitHubServer`: the helper closed bodies in `t.Cleanup`, which the
+linter cannot see. The helper now reads and closes each body itself, and
+returns the status, headers, bytes and read error. The server mutations
+were run again against the rewritten test.
+
+**Mutation proofs.** The PLAN's three plus nine more; none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the server serves assets directly (no 302) | `asset request …/releases/assets/6 was not redirected to another origin` |
+| one golden byte flipped (text) | `testdata/golden/text-upgrade.golden differs from the reporter output` |
+| one golden byte flipped (JSON Lines) | `testdata/golden/jsonl-dry-run.golden differs from the reporter output` |
+| `NewRelease` writes a wrong digest | `manifest digest for demo-linux-amd64 = "3331…", want "ea95…"` |
+| `GitHubSource` keeps `Authorization` cross-origin | `the asset host received Authorization on /download/6` |
+| `latest` ignores the prerelease flag | `latest = {… TagName:v1.2.0-rc.1 …}` |
+| `RateLimit` ignored | `rate limit = 200 ""` |
+| the request log drops `Authorization` | `API request …/releases/latest had no Authorization` |
+| `OpenAsset` is not recorded | `calls = [Latest ByTag v9.9.9 ByTag v1.0.0], want [Latest OpenAsset …]` |
+| a prompt past the script is approved | `a prompt past the script was answered` |
+| `OmitDigest` ignored | `asset 1 = {… Digest:sha256:0e90… }, want no digest …` |
+| `TruncateAssets` sends the whole body | `truncated read = <nil>, want io.ErrUnexpectedEOF` |
+
+The first spec for the truncation mutation (`if truncated` made
+`if false`) did not compile, because the flag became unused. It was
+rewritten, then killed.
+
+The `Authorization` mutation matters beyond this step. Go's client
+forwards `Authorization` on a redirect to the same host name, and both
+test origins are `127.0.0.1` on different ports. So the e2e test catches a
+regression in `GitHubSource.checkRedirect` itself, not only in the fake.
+
+**Checks.**
+
+* `make pre-add-check` passed on the five Go files; `go mod tidy -diff`
+  is clean.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, including `TestGolden` and
+  `TestE2EGitHubRedirectedDownload`.
+* No deviation. The choices the PLAN left open are recorded above: the
+  latest rule, the download path, the unexported manifest name, and golden
+  files that hold reporter output only.

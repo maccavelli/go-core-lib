@@ -1,0 +1,3 @@
+{"kind":"resolving-target","product":"demo","current":"dev"}
+{"kind":"fetching-release","product":"demo","current":"dev"}
+{"kind":"selected","product":"demo","current":"dev","target":"v1.1.0","asset":"demo-linux-amd64","detail":"local build: apply requires --force"}

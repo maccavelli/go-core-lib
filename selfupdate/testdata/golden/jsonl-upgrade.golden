@@ -1,0 +1,8 @@
+{"kind":"resolving-target","product":"demo","current":"v1.0.0"}
+{"kind":"fetching-release","product":"demo","current":"v1.0.0"}
+{"kind":"selected","product":"demo","current":"v1.0.0","target":"v1.1.0","asset":"demo-linux-amd64"}
+{"kind":"downloading-manifest","product":"demo","target":"v1.1.0","asset":"SHA256SUMS"}
+{"kind":"downloading-binary","product":"demo","target":"v1.1.0","asset":"demo-linux-amd64","bytes":24}
+{"kind":"verified","product":"demo","target":"v1.1.0","asset":"demo-linux-amd64"}
+{"kind":"installing","product":"demo","target":"v1.1.0","asset":"demo-linux-amd64"}
+{"kind":"complete","product":"demo","current":"v1.0.0","target":"v1.1.0","asset":"demo-linux-amd64","detail":"release asset integrity verified"}

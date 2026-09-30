@@ -1,0 +1,4 @@
+{"kind":"resolving-target","product":"demo","current":"v1.0.0"}
+{"kind":"fetching-release","product":"demo","current":"v1.0.0"}
+{"kind":"selected","product":"demo","current":"v1.0.0","target":"v1.1.0","asset":"demo-linux-amd64"}
+{"kind":"declined","product":"demo","current":"v1.0.0","target":"v1.1.0","asset":"demo-linux-amd64"}
