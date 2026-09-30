@@ -8,28 +8,38 @@ import (
 )
 
 type fakeLife struct {
-	installed bool
-	running   bool
-	stopErr   error
-	startErr  error
-	healthErr error
-	stops     int
-	starts    int
-	healths   int
+	installed    bool
+	running      bool
+	installedErr error
+	runningErr   error
+	stopErr      error
+	startErr     error
+	healthErr    error
+	onHealth     func() // runs inside every WaitHealthy call
+	stops        int
+	starts       int
+	healths      int
+	startCtxErrs []error // ctx.Err() seen by each Start
 }
 
-func (f *fakeLife) Installed(context.Context, string) (bool, error) { return f.installed, nil }
-func (f *fakeLife) Running(context.Context, string) (bool, error)   { return f.running, nil }
+func (f *fakeLife) Installed(context.Context, string) (bool, error) {
+	return f.installed, f.installedErr
+}
+func (f *fakeLife) Running(context.Context, string) (bool, error) { return f.running, f.runningErr }
 func (f *fakeLife) Stop(context.Context, string) error {
 	f.stops++
 	return f.stopErr
 }
-func (f *fakeLife) Start(context.Context, string) error {
+func (f *fakeLife) Start(ctx context.Context, _ string) error {
 	f.starts++
+	f.startCtxErrs = append(f.startCtxErrs, ctx.Err())
 	return f.startErr
 }
 func (f *fakeLife) WaitHealthy(context.Context, string) error {
 	f.healths++
+	if f.onHealth != nil {
+		f.onHealth()
+	}
 	return f.healthErr
 }
 
@@ -213,9 +223,12 @@ func TestManagedRollbackErrorJoined(t *testing.T) {
 	if err == nil || !errors.Is(err, ErrManagedInstall) {
 		t.Fatalf("err = %v", err)
 	}
-	if !errors.Is(err, rec.restoreE) && rec.restoreE != nil {
-		if rec.restores != 1 {
-			t.Fatalf("restores = %d", rec.restores)
-		}
+	// Unconditional: the restore failure must be joined into the error, and
+	// Restore must have run exactly once (0003-MADR B8).
+	if !errors.Is(err, rec.restoreE) {
+		t.Fatalf("restore error not joined: %v", err)
+	}
+	if rec.restores != 1 {
+		t.Fatalf("restores = %d", rec.restores)
 	}
 }

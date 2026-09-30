@@ -38,12 +38,21 @@ func copyFile(src, dst string) (err error) {
 	defer func() {
 		err = joinClose(err, in)
 	}()
+	srcInfo, err := in.Stat()
+	if err != nil {
+		return err
+	}
 	out, err := openAbsFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	if _, copyErr := io.Copy(out, in); copyErr != nil {
 		return joinRemove(joinClose(copyErr, out), dst)
+	}
+	// The backup is what a rollback restores: it keeps the executable's
+	// mode, not the creation default (0003-MADR B3).
+	if chmodErr := out.Chmod(srcInfo.Mode().Perm()); chmodErr != nil {
+		return joinRemove(joinClose(chmodErr, out), dst)
 	}
 	if syncErr := out.Sync(); syncErr != nil {
 		return joinRemove(joinClose(syncErr, out), dst)

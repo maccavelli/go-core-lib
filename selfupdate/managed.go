@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // ManagedInstaller composes standalone replacement with consumer lifecycle
@@ -83,7 +84,10 @@ func (s *managedSession) Install(ctx context.Context, req InstallRequest) (Insta
 	}
 	applied, err := s.inner.apply(ctx, req)
 	if err != nil {
-		return InstallResult{}, s.recover(ctx, product, applyResult{}, ReconcileResult{}, stopped, err)
+		// applied carries a backup when the new binary is live and the
+		// restore inside replaceTarget failed; recovery retries it
+		// (0003-MADR B1).
+		return InstallResult{}, s.recover(ctx, product, applied, ReconcileResult{}, stopped, err)
 	}
 	receipt, recErr := s.rec.Reconcile(ctx, product, s.inner.target.Path)
 	if recErr != nil {
@@ -110,7 +114,15 @@ func (s *managedSession) Install(ctx context.Context, req InstallRequest) (Insta
 	return result, nil
 }
 
-func (s *managedSession) recover(ctx context.Context, product string, applied applyResult, receipt ReconcileResult, restart bool, origin error) error {
+// recoveryTimeout bounds recovery. Recovery does not inherit the caller's
+// cancellation: when the failure being recovered from was the caller's
+// deadline, a cancelled context would leave a stopped service down
+// (0003-MADR B2).
+const recoveryTimeout = 2 * time.Minute
+
+func (s *managedSession) recover(parent context.Context, product string, applied applyResult, receipt ReconcileResult, restart bool, origin error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), recoveryTimeout)
+	defer cancel()
 	var recov error
 	if receipt.Changed || receipt.State != nil {
 		if err := s.rec.Restore(ctx, product, receipt); err != nil {

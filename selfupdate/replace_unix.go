@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
@@ -11,6 +12,9 @@ var osRename = os.Rename
 
 type applyResult struct {
 	backup string
+	// renamed reports that the staging file was consumed by the rename, so
+	// the session must no longer remove it (0003-MADR B4).
+	renamed bool
 }
 
 func isUnsupportedDirSync(error) bool {
@@ -40,12 +44,16 @@ func replaceTarget(target Target, staging string) (applyResult, error) {
 		return applyResult{}, joinRemove(fmt.Errorf("selfupdate: rename staging over target: %w", err), backup)
 	}
 	if err := syncDirFn(target.Dir); err != nil {
+		syncErr := fmt.Errorf("selfupdate: sync directory: %w", err)
 		if rerr := replacePath(backup, target.Path); rerr != nil {
-			return applyResult{backup: backup}, fmt.Errorf("selfupdate: sync directory: %w", err)
+			// The new binary is live and the backup is kept: report both, so
+			// neither the failed restore nor the backup is lost (0003-MADR B1).
+			return applyResult{backup: backup, renamed: true},
+				errors.Join(syncErr, fmt.Errorf("selfupdate: restore backup: %w", rerr))
 		}
-		return applyResult{}, fmt.Errorf("selfupdate: sync directory: %w", err)
+		return applyResult{renamed: true}, syncErr
 	}
-	return applyResult{backup: backup}, nil
+	return applyResult{backup: backup, renamed: true}, nil
 }
 
 func commitReplacement(target Target, result applyResult) (pending string, err error) {

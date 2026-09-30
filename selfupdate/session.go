@@ -19,6 +19,8 @@ type installSession struct {
 	closed   bool
 	mu       sync.Mutex
 	closeErr error
+	// dirInfo identifies the locked target directory (0003-MADR B10).
+	dirInfo os.FileInfo
 }
 
 func (s *installSession) Target() Target {
@@ -63,16 +65,14 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
-		return InstallResult{}, fmt.Errorf("selfupdate: session is closed")
-	}
-	if !s.owns(req.Artifact.Path) {
-		return InstallResult{}, fmt.Errorf("selfupdate: artifact is not owned by this session")
-	}
-	applied, err := replaceTarget(s.target, req.Artifact.Path)
-	delete(s.staging, req.Artifact.Path)
+	applied, err := s.replaceLocked(req.Artifact.Path)
 	if err != nil {
-		return InstallResult{}, err
+		// Backup is non-empty only when the new binary is live and the
+		// restore failed (0003-MADR B1).
+		return InstallResult{Target: s.target.Path, Backup: applied.backup}, err
+	}
+	if err := s.checkDir(); err != nil {
+		return InstallResult{Target: s.target.Path, Backup: applied.backup, Applied: true}, err
 	}
 	pending, err := commitReplacement(s.target, applied)
 	if err != nil {
@@ -97,20 +97,58 @@ func (s *installSession) apply(ctx context.Context, req InstallRequest) (applyRe
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.replaceLocked(req.Artifact.Path)
+}
+
+// replaceLocked replaces the target with an owned staging file. The caller
+// holds s.mu. Staging is deregistered only once the rename has consumed it,
+// so a failure before that leaves it for Close to remove (0003-MADR B4).
+func (s *installSession) replaceLocked(path string) (applyResult, error) {
 	if s.closed {
 		return applyResult{}, fmt.Errorf("selfupdate: session is closed")
 	}
-	if !s.owns(req.Artifact.Path) {
+	if !s.owns(path) {
 		return applyResult{}, fmt.Errorf("selfupdate: artifact is not owned by this session")
 	}
-	applied, err := replaceTarget(s.target, req.Artifact.Path)
-	delete(s.staging, req.Artifact.Path)
+	// The directory first: once it has been swapped, every path below it
+	// names something other than what was locked.
+	if err := s.checkDir(); err != nil {
+		return applyResult{}, err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return applyResult{}, fmt.Errorf("selfupdate: stat staging: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return applyResult{}, fmt.Errorf("selfupdate: staging is not a regular file")
+	}
+	applied, err := replaceTarget(s.target, path)
+	if applied.renamed {
+		delete(s.staging, path)
+	}
 	return applied, err
+}
+
+// checkDir requires the target directory to be the one the session locked:
+// a directory swapped in after Begin would put the replacement outside the
+// lock (0003-MADR B10).
+func (s *installSession) checkDir() error {
+	if s.dirInfo == nil {
+		return nil
+	}
+	cur, err := os.Stat(s.target.Dir)
+	if err != nil || !os.SameFile(s.dirInfo, cur) {
+		return fmt.Errorf("selfupdate: target directory changed during the update: %w", ErrConcurrentUpdate)
+	}
+	return nil
 }
 
 func (s *installSession) commit(applied applyResult) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.checkDir(); err != nil {
+		return "", err
+	}
 	return commitReplacement(s.target, applied)
 }
 
@@ -169,11 +207,22 @@ func beginSession(ctx context.Context, policy TargetPolicy, original Target, tim
 	if err := revalidateTarget(original, policy); err != nil {
 		return nil, errors.Join(err, lock.release(), root.Close())
 	}
+	// The directory opened as root must be the one at the path, and that
+	// path identity is what later steps re-check.
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("selfupdate: stat target directory: %w", err), lock.release(), root.Close())
+	}
+	dirInfo, err := os.Stat(original.Dir)
+	if err != nil || !os.SameFile(rootInfo, dirInfo) {
+		return nil, errors.Join(fmt.Errorf("selfupdate: target directory changed while locking: %w", ErrConcurrentUpdate), lock.release(), root.Close())
+	}
 	return &installSession{
 		target:  original,
 		policy:  policy,
 		root:    root,
 		lock:    lock,
 		staging: make(map[string]struct{}),
+		dirInfo: dirInfo,
 	}, nil
 }

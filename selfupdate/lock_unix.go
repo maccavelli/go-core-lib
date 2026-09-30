@@ -48,9 +48,9 @@ func acquireLock(ctx context.Context, root *os.Root, base string, timeout time.D
 }
 
 func tryAcquireLock(root *os.Root, name string) (lockHandle, error) {
-	f, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|unix.O_NOFOLLOW, 0o600)
+	f, err := openLockFile(root, name, unix.O_NOFOLLOW)
 	if err != nil {
-		return lockHandle{}, fmt.Errorf("selfupdate: open lock: %w", err)
+		return lockHandle{}, err
 	}
 	info, err := f.Stat()
 	if err != nil {

@@ -757,3 +757,109 @@ Commit: `f095505`.
   `v1.6.0`; no signature line).
 * Windows gate: `go vet` 0, `go test -race` 0, the named Phase 2 tests
   PASS, script tests 0, `overall=0`, `cleanup ok`.
+
+Commit: `e5bb201`.
+
+### Phase 3: install path, portable (2026-09-29)
+
+**Changes.**
+
+* **B1.** `replaceTarget` (unix and windows), when the directory sync
+  fails and the restore also fails, returns the backup with
+  `errors.Join(syncErr, "restore backup: …")`.
+  * `installSession.Install` returns `InstallResult{Target, Backup}` with
+    that error.
+  * `managedSession.Install` passes the returned `applied` to `recover`,
+    which retries the restore.
+* **B2.** `recover` runs on
+  `context.WithTimeout(context.WithoutCancel(parent), recoveryTimeout)`,
+  with `recoveryTimeout = 2 * time.Minute` (unexported).
+* **B3.** `copyFile` chmods the backup to the source's mode before `Sync`.
+* **B4.** `applyResult.renamed`. The new `replaceLocked`, shared by
+  `Install` and the managed `apply`, deregisters staging only when the
+  rename consumed it.
+* **B5.** New `lock.go` `openLockFile`: `root.Lstat` first (anything not
+  regular, a symlink included, is refused); create only with `O_EXCL`;
+  `os.SameFile` after opening; one retry if a concurrent creator wins.
+  `lock_unix.go` (keeping `O_NOFOLLOW`) and `lock_windows.go` use it.
+* **B10, directory identity.**
+  * `beginSession` requires `os.SameFile(root.Stat("."), os.Stat(dir))`
+    and records the path's `FileInfo`.
+  * `checkDir` re-checks it before the replace and before commit, and
+    returns `ErrConcurrentUpdate` on a mismatch.
+  * The check runs first in `replaceLocked`. As first written it came
+    after the staging `Lstat`, and the swap test then reported "no such
+    file" instead of `ErrConcurrentUpdate`; the order was corrected.
+* **B9, planted staging symlink.** `replaceLocked` requires the staging
+  path to `Lstat` as a regular file. The fail-first run below shows the
+  old code **installed** a symlink planted at the staging path, so this is
+  a fixed defect, found by the test PLAN §8 required.
+* **B8.** `TestManagedRollbackErrorJoined` asserts `errors.Is(err,
+  rec.restoreE)` and `restores == 1` unconditionally.
+* **Test helpers.** `fakeLife` gained `installedErr`, `runningErr`,
+  `onHealth` and `startCtxErrs`.
+* **New tests** (`install_hardening_test.go`):
+  `TestInstallSyncAndRollbackFailureReported`,
+  `TestManagedApplyFailureRetriesRollback`,
+  `TestManagedRecoveryIgnoresCancelledContext`,
+  `TestBackupCopyFallbackPreservesMode`,
+  `TestInstallFailureBeforeRenameRemovesStagingOnClose`,
+  `TestLockRejectsRelativeSymlink`,
+  `TestLockRejectsDanglingRelativeSymlink`,
+  `TestInstallDetectsSwappedDirectory`, `TestStagingRejectsPlantedSymlink`,
+  `TestInstallInjectedFailures`, `TestInstallPermissionDenied`,
+  `TestInstallCancelledBeforeAndAfterStaging`,
+  `TestRunBadBodyLeavesNoStaging`, `TestManagedFailureMatrix`.
+
+**Fail-first** against a `git archive` of `e5bb201`.
+
+* **Failed, as required** (9):
+  `TestInstallSyncAndRollbackFailureReported`,
+  `TestManagedApplyFailureRetriesRollback`,
+  `TestManagedRecoveryIgnoresCancelledContext`,
+  `TestBackupCopyFallbackPreservesMode`,
+  `TestInstallFailureBeforeRenameRemovesStagingOnClose`,
+  `TestLockRejectsRelativeSymlink`,
+  `TestLockRejectsDanglingRelativeSymlink`,
+  `TestInstallDetectsSwappedDirectory`,
+  `TestStagingRejectsPlantedSymlink`.
+* **Passed there, proven by mutation:**
+
+  | Mutation | Test | Failure |
+  |---|---|---|
+  | `no-sync-restore` | `TestInstallInjectedFailures` | `target "new-bytes", want "old-bytes"` |
+  | `no-install-ctx-check` | `TestInstallCancelledBeforeAndAfterStaging` | `Install err = <nil>` |
+  | `no-close-staging-removal` | `TestRunBadBodyLeavesNoStaging` | `leftovers: [.demo.selfupdate-…]` |
+  | `no-recovery-restart` | `TestManagedFailureMatrix` | `starts = 1, want 2` |
+  | `drop-recov-join` (B8) | `TestManagedRollbackErrorJoined` | `restore error not joined` |
+
+  * `no-close-staging-removal` as first written left a variable unused,
+    so the "failure" was a build error. It was rewritten to remove a wrong
+    path, which builds; the recorded failure is from that version.
+  * `TestInstallPermissionDenied` has no product-side check to mutate: the
+    refusal comes from the OS. It guards that the target is left intact
+    when the OS refuses.
+
+**Gates.**
+
+* `make pre-add-check`: `51 file(s) clean`.
+* `go test -race -cover`: coverage **85.0 %**. `go mod tidy -diff`: 0.
+* G-api: unchanged since Phase 2.
+* **Windows gate:** `go vet` 0, `go test -race` 0, `overall=0`,
+  `cleanup ok`.
+  * PASS on the Windows host: `TestInstallSyncAndRollbackFailureReported`,
+    `TestManagedApplyFailureRetriesRollback`,
+    `TestManagedRecoveryIgnoresCancelledContext`,
+    `TestInstallFailureBeforeRenameRemovesStagingOnClose`,
+    `TestLockRejectsRelativeSymlink`,
+    `TestLockRejectsDanglingRelativeSymlink`,
+    `TestStagingRejectsPlantedSymlink`. The two lock-symlink tests did not
+    skip, as Phase 4 step 5 requires. This is also the first Windows
+    exercise of `openLockFile` and of `os.SameFile` on directories.
+  * Skipped on Windows, by design and with the reason logged:
+    * `TestBackupCopyFallbackPreservesMode` (POSIX mode bits);
+    * `TestInstallPermissionDenied` (POSIX directory permissions);
+    * `TestInstallDetectsSwappedDirectory`: "The process cannot access the
+      file because it is being used by another process". Windows refuses
+      to rename a directory the session holds open, which itself prevents
+      the swap.

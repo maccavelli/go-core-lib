@@ -14,6 +14,9 @@ import (
 type applyResult struct {
 	backup    string
 	oldDigest string
+	// renamed reports that the staging file was consumed by the replace, so
+	// the session must no longer remove it (0003-MADR B4).
+	renamed bool
 }
 
 func isUnsupportedDirSync(err error) bool {
@@ -47,12 +50,16 @@ func replaceTarget(target Target, staging string) (applyResult, error) {
 		return applyResult{}, joinRemove(fmt.Errorf("selfupdate: replace target: %w", err), backup)
 	}
 	if err := syncDirFn(target.Dir); err != nil && !isUnsupportedSync(err) {
+		syncErr := fmt.Errorf("selfupdate: sync directory: %w", err)
 		if rerr := replacePath(backup, target.Path); rerr != nil {
-			return applyResult{backup: backup, oldDigest: oldDigest}, fmt.Errorf("selfupdate: sync directory: %w", err)
+			// The new binary is live and the backup is kept: report both
+			// (0003-MADR B1).
+			return applyResult{backup: backup, oldDigest: oldDigest, renamed: true},
+				errors.Join(syncErr, fmt.Errorf("selfupdate: restore backup: %w", rerr))
 		}
-		return applyResult{}, fmt.Errorf("selfupdate: sync directory: %w", err)
+		return applyResult{renamed: true}, syncErr
 	}
-	return applyResult{backup: backup, oldDigest: oldDigest}, nil
+	return applyResult{backup: backup, oldDigest: oldDigest, renamed: true}, nil
 }
 
 func moveFileReplace(from, to string) error {
