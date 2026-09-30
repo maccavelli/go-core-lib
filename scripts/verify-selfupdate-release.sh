@@ -79,7 +79,7 @@ if not isinstance(extras, list):
 
 seen_products = set()
 for p in products:
-    if not isinstance(p, str) or not product_re.match(p):
+    if not isinstance(p, str) or not product_re.fullmatch(p):
         fail("invalid product %r" % p)
     if p in seen_products:
         fail("duplicate product %s" % p)
@@ -90,9 +90,9 @@ for plat in platforms:
     if not isinstance(plat, dict) or set(plat.keys()) != {"os", "arch"}:
         fail("platform objects must have only os and arch")
     osname, arch = plat["os"], plat["arch"]
-    if not isinstance(osname, str) or not os_arch_re.match(osname):
+    if not isinstance(osname, str) or not os_arch_re.fullmatch(osname):
         fail("invalid platform os %r" % osname)
-    if not isinstance(arch, str) or not os_arch_re.match(arch):
+    if not isinstance(arch, str) or not os_arch_re.fullmatch(arch):
         fail("invalid platform arch %r" % arch)
     key = (osname, arch)
     if key in seen_plats:
@@ -104,7 +104,7 @@ for extra in extras:
     # The product-name character class: never a path, never a shell glob or
     # word separator, so the upload step can pass names safely
     # (0003-MADR D5).
-    if not isinstance(extra, str) or not product_re.match(extra):
+    if not isinstance(extra, str) or not product_re.fullmatch(extra):
         fail("invalid extra asset %r" % extra)
     if extra in seen_extras or extra == "SHA256SUMS" or extra.startswith("SHA256SUMS-"):
         fail("invalid or duplicate extra asset %r" % extra)
@@ -125,7 +125,7 @@ expected = set(canonical)
 expected.add("SHA256SUMS")
 expected.update(seen_extras)
 
-if tag and not tag_re.match(tag):
+if tag and not tag_re.fullmatch(tag):
     fail("tag %r is not a strict stable tag" % tag)
 
 present = []
@@ -202,7 +202,7 @@ def parse_sums(path):
             name = name[1:]
         if name == "" or "*" in name:
             fail("%s line %d: malformed filename" % (base, i))
-        if not hex_re.match(digest) or not digest.isascii():
+        if not hex_re.fullmatch(digest) or not digest.isascii():
             fail("%s line %d: malformed digest" % (base, i))
         if name in (".", "..") or "/" in name or "\\" in name or os.path.basename(name) != name:
             fail("%s line %d: filename is not a basename" % (base, i))

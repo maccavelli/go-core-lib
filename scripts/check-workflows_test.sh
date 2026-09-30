@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# Offline tests for check-workflows.sh. Each plant is a workflow shape GitHub
+# accepts; it carries the cases of the two line-scanning checkers it replaced
+# (docs/decisions/0003-MADR-remediate-debugging-pass-findings.md D4, D8) and
+# the shapes they got wrong (docs/decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md
+# R7, R8).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CHECK="$ROOT/scripts/check-workflows.sh"
+WORKFLOW="$ROOT/.github/workflows/publish-selfupdate-release.yml"
+CI="$ROOT/.github/workflows/ci.yml"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+PASS=0
+FAIL=0
+
+expect() { # name want-rc rule file
+	set +e
+	"$CHECK" --rule "$3" "$4" >/dev/null 2>&1
+	rc=$?
+	set -e
+	if [ "$rc" -eq "$2" ]; then
+		echo "  ok   $1"
+		PASS=$((PASS + 1))
+	else
+		echo "  FAIL $1: want exit $2, got $rc"
+		FAIL=$((FAIL + 1))
+	fi
+}
+
+# plant <file> <yaml>: the release workflow with a step appended to its last
+# job. printf %s keeps the YAML byte for byte.
+plant() {
+	cp "$WORKFLOW" "$1"
+	printf '%s\n' "$2" >>"$1"
+}
+
+# drop_repo_in <step name>: the release workflow without that step's GH_REPO.
+drop_repo_in() {
+	awk -v step="- name: $1" '
+		index($0, step) { in_step = 1 }
+		in_step && /GH_REPO:/ { in_step = 0; next }
+		{ print }
+	' "$WORKFLOW"
+}
+
+# The expression text is built at run time so this file holds no literal
+# expression of its own.
+EXPR='$'"{{ github.ref_name }}"
+# The literal $TAG in planted YAML is workflow content, not shell here.
+# shellcheck disable=SC2016
+VIEW='gh release view "$TAG"'
+
+echo "real workflows"
+expect "release workflow, expressions" 0 expressions "$WORKFLOW"
+expect "release workflow, gh-repo" 0 gh-repo "$WORKFLOW"
+expect "ci workflow, expressions" 0 expressions "$CI"
+
+echo "expressions"
+awk -v expr="$EXPR" '
+	/gh release edit "\$TAG" --draft=false/ { sub(/"\$TAG"/, "\"" expr "\"") }
+	{ print }
+' "$WORKFLOW" >"$WORK/block.yml"
+grep -qF "$EXPR\" --draft=false" "$WORK/block.yml"
+expect "in a run block" 1 expressions "$WORK/block.yml"
+
+plant "$WORK/oneline.yml" "      - name: One line
+        run: echo \"$EXPR\""
+expect "on a one-line run" 1 expressions "$WORK/oneline.yml"
+
+# shellcheck disable=SC2016
+plant "$WORK/env.yml" "      - name: Env
+        env:
+          X: $EXPR
+        run: |
+          echo \"\$X\""
+expect "in env is allowed" 0 expressions "$WORK/env.yml"
+
+plant "$WORK/comment.yml" "      - name: Commented header
+        run: |  # a comment after the indicator
+          echo \"$EXPR\""
+expect "R7: block header with a comment" 1 expressions "$WORK/comment.yml"
+
+plant "$WORK/indent.yml" "      - name: Explicit indentation
+        run: |2
+            echo \"$EXPR\""
+expect "R7: explicit indentation indicator" 1 expressions "$WORK/indent.yml"
+
+plant "$WORK/plain.yml" "      - name: Plain multi-line scalar
+        run: echo start
+          $EXPR"
+expect "R7: plain multi-line scalar" 1 expressions "$WORK/plain.yml"
+
+plant "$WORK/quoted.yml" "      - name: Quoted key
+        \"run\": |
+          echo \"$EXPR\""
+expect "R7: quoted run key" 1 expressions "$WORK/quoted.yml"
+
+# shellcheck disable=SC2016
+plant "$WORK/dashrun.yml" "      - run: |
+          echo \"\$X\"
+        env:
+          X: $EXPR"
+expect "R7: env after a dash-run block is allowed" 0 expressions "$WORK/dashrun.yml"
+
+plant "$WORK/dupkey.yml" "      - name: Duplicate run key
+        run: echo \"$EXPR\"
+        run: echo hidden"
+expect "a duplicate key is an error, not a pass" 2 expressions "$WORK/dupkey.yml"
+
+echo "gh-repo"
+drop_repo_in "Publish the draft" >"$WORK/control.yml"
+expect "gh call without GH_REPO" 1 gh-repo "$WORK/control.yml"
+
+drop_repo_in "Refuse an existing release" >"$WORK/refuse.yml"
+expect "refuse script without GH_REPO" 1 gh-repo "$WORK/refuse.yml"
+
+awk '
+	index($0, "- name: Publish the draft") { in_step = 1 }
+	in_step && /GH_REPO:/ { sub(/GH_REPO:/, "# GH_REPO:"); in_step = 0 }
+	{ print }
+' "$WORKFLOW" >"$WORK/commented.yml"
+expect "commented-out GH_REPO" 1 gh-repo "$WORK/commented.yml"
+
+plant "$WORK/unnamed.yml" "      - run: $VIEW"
+expect "unnamed step inherits nothing" 1 gh-repo "$WORK/unnamed.yml"
+
+plant "$WORK/help.yml" "      - name: Probe
+        run: gh release list --help"
+expect "--help probe exempt" 0 gh-repo "$WORK/help.yml"
+
+plant "$WORK/echo.yml" "      - name: Echo
+        run: |
+          echo \"GH_REPO: owner/repo\"
+          $VIEW"
+expect "R8: GH_REPO text in the script sets nothing" 1 gh-repo "$WORK/echo.yml"
+
+plant "$WORK/ghrun.yml" "      - name: Runs
+        run: gh run list"
+expect "R8: gh run" 1 gh-repo "$WORK/ghrun.yml"
+
+plant "$WORK/ghworkflow.yml" "      - name: Workflows
+        run: gh workflow list"
+expect "R8: gh workflow" 1 gh-repo "$WORK/ghworkflow.yml"
+
+# shellcheck disable=SC2016
+plant "$WORK/bashrefuse.yml" "      - name: Refuse through bash
+        run: bash .core-lib-release-tools/scripts/refuse-existing-release.sh \"\$TAG\""
+expect "R8: refuse script run through bash" 1 gh-repo "$WORK/bashrefuse.yml"
+
+plant "$WORK/helptail.yml" "      - name: Help tail
+        run: $VIEW || gh release --help"
+expect "R8: a --help tail exempts only itself" 1 gh-repo "$WORK/helptail.yml"
+
+plant "$WORK/envafter.yml" "      - name: Env after run
+        run: $VIEW
+        env:
+          GH_REPO: owner/repo"
+expect "R8: env after run counts" 0 gh-repo "$WORK/envafter.yml"
+
+plant "$WORK/jobenv.yml" "  planted:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: owner/repo
+    steps:
+      - run: $VIEW"
+expect "R8: job-level GH_REPO counts" 0 gh-repo "$WORK/jobenv.yml"
+
+printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]

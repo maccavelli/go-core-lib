@@ -196,4 +196,24 @@ for extra in 'install.ps1' 'magic-cli-remote-v0.20.0-arm64.apk'; do
 		--dir "$SAFE" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "[\"$extra\"]"
 done
 
+# 0004-MADR R6: a trailing newline is part of neither a strict tag nor a
+# safe name. Python's "$" matches before a final newline, so each check must
+# match the whole string.
+nl='
+'
+run_fail "tag with a trailing newline" \
+	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
+	--tag "v1.2.3$nl"
+NLX="$WORKDIR/nl-extra"
+make_valid "$NLX"
+rm -f "$NLX/install.sh"
+# The file must exist, or the old check refuses the name for being missing
+# rather than for its newline.
+if printf 'x' >"$NLX/notes$nl" 2>/dev/null; then
+	run_fail "extra name with a trailing newline" \
+		--dir "$NLX" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras '["notes\n"]'
+else
+	echo "skip - extra name with a trailing newline (this filesystem cannot hold one)"
+fi
+
 echo "verify-selfupdate-release_test: all fixtures passed"

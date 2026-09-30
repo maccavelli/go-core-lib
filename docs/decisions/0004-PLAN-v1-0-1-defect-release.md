@@ -182,7 +182,8 @@ asks for it.
      `scripts/requirements-workflow-check.txt` (`PyYAML==6.0.3`, with
      wheel and sdist hashes).
    * CI then runs the new checker: both rules on the publish workflow, and
-     the expressions rule on `ci.yml`.
+     the expressions rule on `ci.yml`. *(Linux only, per deviation D2; the
+     old checkers ran on all three runner OSes.)*
    * Shellcheck still covers every `scripts/*.sh`.
 6. The Windows test script names the new checker.
 
@@ -399,3 +400,94 @@ there, `afterLockHook` and a no-op `withRetryBudget`, without the fixes.
   is annotated. No file was added to the step.
 * **MADR.** No MADR amendment is needed. Its G8 *(clarified)* note already
   describes the fix as "the value", and nothing it asserts changes.
+
+### Step 5: release tooling (2026-09-30)
+
+**What changed.**
+
+* **R6.** The verifier's six regex checks use `fullmatch`.
+  `verify-selfupdate-release_test.sh` gains two cases: a tag, and an
+  extra-asset name, each with a trailing newline.
+* **R7, R8.**
+  * The new `scripts/check-workflows.sh` parses each workflow with PyYAML
+    and refuses duplicate keys.
+  * Its two rules are `expressions` and `gh-repo`. `gh-repo` splits the
+    script into command segments, so only a segment that is itself a
+    `--help` probe is exempt, and it reads `GH_REPO` from the step's,
+    job's or workflow's `env`.
+  * It exits 2 when PyYAML is missing.
+  * The old `check-workflow-expressions.sh`, `check-workflow-gh-repo.sh`
+    and their tests were deleted.
+* **Pinned install.** `scripts/requirements-workflow-check.txt` pins
+  `PyYAML==6.0.3` with its cp312 manylinux wheel hash and its sdist hash.
+* **CI.** `ci.yml` splits the old step into two:
+  * "Verify the release guard" still runs on all three OSes;
+  * "Verify the workflow contract" is Linux only, and runs the pinned venv
+    install, the checker and its test.
+* **Records outside the plan's file list.** `docs/architecture.md` listed
+  the deleted checkers, so it was updated here rather than in Step 7.
+
+**Tests and proofs.**
+
+* **R6, unfixed verifier** (`33761dd`):
+  * `not ok - tag with a trailing newline (expected failure)`.
+  * The test stops at its first failure, so the extra-name case was run
+    alone on a second copy, with the tag case neutralised:
+    `not ok - extra name with a trailing newline (expected failure)`.
+* **R6, fixed verifier.** It passes all fixtures on macOS and on the
+  Windows test host, where Git Bash can create the newline-named file,
+  so neither case skipped.
+* **R7, R8, old checkers.** `check-workflows_test.sh` was run on a scratch
+  copy with each case sent to the old checker for its rule:
+  `11 passed, 13 failed`.
+  * All 11 carried-over cases passed there, so the old verdicts are
+    preserved.
+  * Every R7 and R8 shape failed, for example:
+    * `FAIL R7: block header with a comment: want exit 1, got 0`;
+    * `FAIL R7: env after a dash-run block is allowed: want exit 0, got 1`;
+    * `FAIL R8: a --help tail exempts only itself: want exit 1, got 0`;
+    * `FAIL R8: job-level GH_REPO counts: want exit 0, got 1`.
+  * The duplicate-key case is a guard the new checker adds, not an R7
+    item. The old checker exited 1 on it, finding the expression.
+* **R7, R8, new checker.** `24 passed, 0 failed` on macOS and on the
+  Windows test host.
+* **Missing PyYAML.** With a `python3` that has no site-packages,
+  the checker printed
+  `check-workflows: PyYAML is required: pip install -r scripts/requirements-workflow-check.txt`
+  and exited 2.
+  * The first two attempts passed wrongly. The macOS system `python3` shim
+    found PyYAML elsewhere. Then the shell's `BASH_ENV` put Homebrew back
+    at the front of `PATH`.
+  * The proof that counts ran with `BASH_ENV` unset.
+* **Pinned install.** A platform-targeted
+  `pip download --platform manylinux2014_x86_64 --python-version 3.12 --only-binary=:all: --require-hashes`
+  resolved the pinned wheel. The same command with one hash character
+  changed failed: `THESE PACKAGES DO NOT MATCH THE HASHES`.
+* **Lint.** `actionlint` (v1.7.12) and `shellcheck scripts/*.sh` were
+  clean, and `markdownlint-cli2` was clean on `docs/architecture.md`.
+* **Windows test host.** `go vet`, `go test -race`, and all four script
+  tests passed.
+* **Not yet verified.** The venv step has not run on a GitHub runner. It
+  first runs on the push the owner asks for.
+
+**Deviation D2 (2026-09-30): the workflow checker runs on Linux only in
+CI.**
+
+* **Found.** The old checkers ran in a step without an OS condition, so on
+  all three runner OSes. The new checker needs PyYAML, which no runner
+  image ships. A hash-pinned install differs by OS and by Python version:
+  another wheel, another hash, and on Windows another venv layout and no
+  `python3` command.
+* **Decision.** Run the checker and its test on Linux only, in a
+  hash-pinned venv. That follows the precedent `ci.yml` already sets for
+  the Python-based release-verifier test. The refuse-guard test keeps all
+  three OSes.
+* **Why this does not weaken the gate.** The checker's verdict depends
+  only on the workflow text. The Windows test host still runs the checker
+  and its test locally.
+* **What the owner can reverse.** If the checker should run on every
+  runner OS, the requirements file needs hashes for every wheel, and the
+  step needs per-OS venv paths.
+* **MADR.** Unaffected: its R7/R8 *(clarified)* note says only "CI installs
+  `PyYAML==6.0.3` into a virtual environment from a hash-pinned
+  requirements file".

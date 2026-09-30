@@ -73,12 +73,22 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: ./scripts/verify-selfupdate-release_test.sh
-      - name: Verify the release guard and its workflow contract
+      - name: Verify the release guard
+        shell: bash
+        run: ./scripts/refuse-existing-release_test.sh
+      # The workflow checker parses YAML with PyYAML, which the runner image
+      # does not ship; it is installed hash-pinned into a venv. Like the
+      # release fixtures above it runs on Linux: its verdict depends on the
+      # workflow text alone (docs/decisions/0004-PLAN-v1-0-1-defect-release.md
+      # deviation D2).
+      - name: Verify the workflow contract
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          ./scripts/refuse-existing-release_test.sh
-          ./scripts/check-workflow-gh-repo.sh
-          ./scripts/check-workflow-gh-repo_test.sh
-          ./scripts/check-workflow-expressions.sh
-          ./scripts/check-workflow-expressions.sh .github/workflows/ci.yml
-          ./scripts/check-workflow-expressions_test.sh
+          python3 -m venv "$RUNNER_TEMP/wfcheck"
+          "$RUNNER_TEMP/wfcheck/bin/pip" install --require-hashes --only-binary=:all: \
+            -r scripts/requirements-workflow-check.txt
+          export PATH="$RUNNER_TEMP/wfcheck/bin:$PATH"
+          ./scripts/check-workflows.sh
+          ./scripts/check-workflows.sh --rule expressions .github/workflows/ci.yml
+          ./scripts/check-workflows_test.sh

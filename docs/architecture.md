@@ -34,8 +34,9 @@ scripts/
   go-precheck.sh            the pre-add check
   verify-selfupdate-release.sh     validates a staged release set
   refuse-existing-release.sh       refuses a tag that already has a release
-  check-workflow-gh-repo.sh        asserts every repository-scoped gh step sets GH_REPO
-  check-workflow-expressions.sh    asserts no ${{ }} is interpolated into a run block
+  check-workflows.sh        parses workflows as YAML: no ${{ }} in a run script,
+                            and every repository-scoped gh step sets GH_REPO
+  requirements-workflow-check.txt  hash-pinned PyYAML for check-workflows.sh
   *_test.sh                 offline tests for each of those scripts
 .claude/ .grok/ .opencode/  per-agent pointers to AGENTS.md
 opencode.json
