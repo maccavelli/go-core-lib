@@ -1308,3 +1308,44 @@ the typed-nil `*os.File` case and the host-input property.
   `errors.Is` in `TestFuncAdapters`, and the rename above.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
+
+### Step 3: `Checker` (2026-09-30)
+
+**What changed.**
+
+* `checker.go` adds `CheckerConfig`, `Checker`, `CheckRequest`,
+  `Availability`, `NewChecker`, `Updater.Checker` and `Checker.Check`.
+* The discovery sequence moved from `execute` into `Checker.discover`:
+  fetch, then immutable, then draft and prerelease, then the tag, `Select`,
+  both assets' metadata, and `classifyOperation`. `fetchRelease` moved with
+  it.
+* `execute` calls `u.Checker().discover` after its `EventFetchingRelease`,
+  so `Run --check` still resolves the target first, and its events and
+  results are unchanged. The existing suite passed unchanged after the
+  refactor; that is rule 4's guard.
+
+**Tests** (`checker_test.go`).
+
+* `TestCheckerAvailability` has 10 rows: upgrade, up to date, local build,
+  exact rollback, latest older, mutable, prerelease, unsupported platform,
+  bad digest syntax, and a configured permissive policy.
+* `TestCheckerAgreesWithRunCheck` covers the same 10 rows.
+* `TestCheckerNeedsNoInstaller`: `userHomeDir` and `osExecutable` fail,
+  and the check still succeeds. It also covers nil and typed-nil sources.
+* `TestCheckerDownloadsNothing` and `TestUpdaterChecker`.
+
+**Mutation proofs.** Five mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `Available` set unconditionally | the up-to-date row: `… Available:true …, want … available=false` |
+| `ForceRequired` never set | the local row: `… ForceRequired:false}, want … force=true` |
+| immutable check removed | `err = <nil>, want selfupdate: release is not immutable` |
+| `Check` validates with the strict policy | `… "v1.2.3-rc.1" is not a strict stable tag` |
+| `AssetName` taken from the manifest | `Check {… AssetName:SHA256SUMS …} disagrees with Run {… AssetName:demo-darwin-arm64 …}` |
+
+**Checks.**
+
+* `make pre-add-check` passed on the three files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, including the five new tests.

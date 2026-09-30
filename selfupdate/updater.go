@@ -98,35 +98,9 @@ func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
 	if err := u.report(ctx, Event{Kind: EventFetchingRelease, Product: req.Product, Current: req.CurrentVersion, Target: req.TargetVersion}); err != nil {
 		return Result{}, wrapRun(req, err)
 	}
-	rel, fromLatest, err := u.fetchRelease(ctx, req)
-	if err != nil {
-		return Result{}, wrapRun(req, err)
-	}
-	// PLAN §4.6 step 4 order: immutable, then state, then tag. The tag is
-	// untrusted until Validate passes, so it is always quoted.
-	if !rel.Immutable {
-		return Result{}, wrapRun(req, fmt.Errorf("selfupdate: release %q is not immutable: %w", rel.Tag, ErrMutableRelease))
-	}
-	if rel.Draft || rel.Prerelease {
-		return Result{}, wrapRun(req, fmt.Errorf("selfupdate: release %q is not a stable published release", rel.Tag))
-	}
-	if err := u.versions.Validate(rel.Tag); err != nil {
-		return Result{}, wrapRun(req, err)
-	}
-	sel, err := u.assets.Select(rel, req.Product, req.Platform)
-	if err != nil {
-		return Result{}, wrapRun(req, err)
-	}
-	// Only the selected binary and manifest are checked for state, size and
-	// digest syntax, each against its own limit, and before check mode can
-	// report anything (PLAN §4.6 step 4; 0003-MADR A1 and A5).
-	if err := validateAssetMetadata(sel.Binary, u.limits.Executable); err != nil {
-		return Result{}, wrapRun(req, err)
-	}
-	if err := validateAssetMetadata(sel.Manifest, u.limits.Manifest); err != nil {
-		return Result{}, wrapRun(req, err)
-	}
-	op, err := classifyOperation(u.versions, req, rel.Tag, fromLatest)
+	// Discovery is shared with Checker.Check, so Run and Check cannot
+	// disagree (0004-MADR G3).
+	rel, sel, op, err := u.Checker().discover(ctx, req)
 	if err != nil {
 		return Result{}, wrapRun(req, err)
 	}
@@ -171,22 +145,6 @@ func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 	return u.apply(ctx, req, result, target, rel, sel)
-}
-
-func (u *Updater) fetchRelease(ctx context.Context, req Request) (Release, bool, error) {
-	if req.TargetVersion == "" {
-		rel, err := u.source.Latest(ctx)
-		return rel, true, err
-	}
-	rel, err := u.source.ByTag(ctx, req.TargetVersion)
-	if err != nil {
-		return Release{}, false, err
-	}
-	if rel.Tag != req.TargetVersion {
-		return Release{}, false, fmt.Errorf("selfupdate: source returned release %q for requested %q: %w",
-			rel.Tag, req.TargetVersion, ErrIntegrity)
-	}
-	return rel, false, nil
 }
 
 func (u *Updater) apply(ctx context.Context, req Request, result Result, target Target, rel Release, sel Selection) (resultOut Result, err error) {
