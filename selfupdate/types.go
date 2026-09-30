@@ -69,6 +69,9 @@ type Request struct {
 	Force bool
 	// Yes approves the already-selected operation without prompting.
 	Yes bool
+	// DryRun downloads, verifies, transforms and probes the release, then
+	// discards it without prompting: nothing is installed.
+	DryRun bool
 }
 
 // Operation is the classified action for a request and selected release.
@@ -141,6 +144,12 @@ type Result struct {
 	// the only copy of the previous binary, and the caller must restore or
 	// remove it.
 	PendingBackup string
+	// DryRun echoes Request.DryRun: the release was checked and nothing
+	// was installed.
+	DryRun bool
+	// Previous is where InstallOptions.KeepPrevious kept the previous
+	// binary.
+	Previous string
 }
 
 // Repository is a GitHub owner/name pair.
@@ -355,6 +364,9 @@ type InstallResult struct {
 	// RolledBack reports that the installer restored the previous binary
 	// itself after a failure.
 	RolledBack bool
+	// Previous is where the previous binary was kept at commit, when the
+	// installer keeps it.
+	Previous string
 }
 
 // Installer resolves the target and begins a locked install session.
@@ -440,6 +452,10 @@ type InstallOptions struct {
 	// replacement and before it is committed; a failure rolls the
 	// replacement back (0004-MADR G9).
 	PostInstall Prober
+	// KeepPrevious keeps the previous binary at .<base>.previous beside
+	// the target at commit, replacing an older one, instead of removing
+	// it (0004-MADR G11).
+	KeepPrevious bool
 }
 
 // DefaultLockTimeout is the lock acquisition bound when InstallOptions leaves

@@ -28,6 +28,16 @@ type installSession struct {
 	lockTimeout time.Duration
 	// postInstall runs the installed binary before commit (0004-MADR G9).
 	postInstall Prober
+	// keepPrevious renames the backup to previousPath at commit instead of
+	// removing it (0004-MADR G11).
+	keepPrevious bool
+}
+
+// previousPath is where KeepPrevious keeps the previous binary. The name
+// matches neither backupPrefix nor the lock or receipt names, so a
+// cleanup receipt can never name it.
+func previousPath(target Target) string {
+	return filepath.Join(target.Dir, "."+target.Base+".previous")
 }
 
 // stagingSuffix gives staging the executable extension on Windows. exec
@@ -129,21 +139,31 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 		}
 		return InstallResult{Target: s.target.Path, Backup: applied.backup}, err
 	}
-	pending, err := commitReplacement(s.target, applied)
-	if err != nil {
-		return InstallResult{
-			Target:        s.target.Path,
-			Backup:        applied.backup,
-			Applied:       true,
-			PendingBackup: pending,
-		}, err
-	}
+	pending, previous, err := s.commitLocked(ctx, applied)
 	return InstallResult{
 		Target:        s.target.Path,
 		Backup:        applied.backup,
 		Applied:       true,
 		PendingBackup: pending,
-	}, nil
+		Previous:      previous,
+	}, err
+}
+
+// commitLocked finishes a live replacement: it removes the backup or, with
+// keepPrevious, renames it to previousPath over any older one. On Windows
+// the backup is a hard link to the running image, and renaming it works
+// while that image runs (0004-PLAN-v1-1-0-core-api.md Step 10). The
+// caller holds s.mu.
+func (s *installSession) commitLocked(ctx context.Context, applied applyResult) (pending, previous string, err error) {
+	if !s.keepPrevious || applied.backup == "" {
+		pending, err = commitReplacement(s.target, applied)
+		return pending, "", err
+	}
+	previous = previousPath(s.target)
+	if err := replacePath(withRetryBudget(ctx, s.lockTimeout), applied.backup, previous); err != nil {
+		return "", "", fmt.Errorf("selfupdate: keep previous: %w", err)
+	}
+	return "", previous, syncDirFn(s.target.Dir)
 }
 
 // Apply implements TwoPhaseSession: it replaces the target, keeps the
@@ -230,7 +250,7 @@ func (s *installSession) checkDir() error {
 
 // Commit implements TwoPhaseSession: it removes the backup of a
 // replacement this session applied.
-func (s *installSession) Commit(_ context.Context, a AppliedReplacement) (InstallResult, error) {
+func (s *installSession) Commit(ctx context.Context, a AppliedReplacement) (InstallResult, error) {
 	applied, err := appliedState(a)
 	if err != nil {
 		return InstallResult{}, err
@@ -239,15 +259,16 @@ func (s *installSession) Commit(_ context.Context, a AppliedReplacement) (Instal
 	defer s.mu.Unlock()
 	// The replacement is live either way: a refused commit leaves the new
 	// binary and its backup in place.
-	pending := ""
+	pending, previous := "", ""
 	if err = s.checkDir(); err == nil {
-		pending, err = commitReplacement(s.target, applied)
+		pending, previous, err = s.commitLocked(ctx, applied)
 	}
 	return InstallResult{
 		Target:        s.target.Path,
 		Backup:        applied.backup,
 		Applied:       true,
 		PendingBackup: pending,
+		Previous:      previous,
 	}, err
 }
 

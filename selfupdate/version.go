@@ -70,6 +70,9 @@ func validateRequest(req Request, versions VersionPolicy) error {
 	if req.CheckOnly && req.Force {
 		return fmt.Errorf("selfupdate: --check and --force are contradictory")
 	}
+	if req.CheckOnly && req.DryRun {
+		return fmt.Errorf("selfupdate: --check and --dry-run are contradictory")
+	}
 	if req.CurrentBuild == ReleaseBuild {
 		if err := versions.Validate(req.CurrentVersion); err != nil {
 			return err

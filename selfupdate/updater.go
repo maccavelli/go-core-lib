@@ -139,6 +139,7 @@ func (u *Updater) execute(ctx context.Context, req Request) (res Result, err err
 		ReleaseURL:     rel.URL,
 		AssetName:      sel.Binary.Name,
 		Operation:      op,
+		DryRun:         req.DryRun,
 	}
 	selected := Event{
 		Kind: EventSelected, Product: req.Product, Current: req.CurrentVersion,
@@ -160,7 +161,8 @@ func (u *Updater) execute(ctx context.Context, req Request) (res Result, err err
 	if op == OperationNone {
 		return result, nil
 	}
-	if !req.Yes {
+	// A dry run changes nothing, so it needs no approval.
+	if !req.Yes && !req.DryRun {
 		ok, err := u.confirmer.Confirm(ctx, Prompt{
 			Product: req.Product, Current: req.CurrentVersion, Target: rel.Tag, Operation: op,
 		})
@@ -287,6 +289,18 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	if err = u.runProbes(ctx, req, rel, stagedPath); err != nil {
 		return resultOut, wrapRun(req, err)
 	}
+	if req.DryRun {
+		// Everything short of Install has run. Closing the session
+		// removes the staging file (0004-MADR G11).
+		resultOut.ReleaseDigest = releaseDigest
+		resultOut.InstalledDigest = installedDigest
+		closeErr = closeSession()
+		repErr := u.report(ctx, Event{
+			Kind: EventComplete, Product: req.Product, Current: req.CurrentVersion,
+			Target: rel.Tag, Asset: sel.Binary.Name, Detail: "dry run: verified, nothing installed",
+		})
+		return resultOut, wrapRun(req, errors.Join(closeErr, repErr))
+	}
 	if rerr := u.report(ctx, Event{Kind: EventInstalling, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name}); rerr != nil {
 		return resultOut, wrapRun(req, rerr)
 	}
@@ -303,6 +317,7 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	resultOut.ServiceInstalled = installed.ServiceInstalled
 	resultOut.ServiceWasRunning = installed.ServiceWasRunning
 	resultOut.PendingBackup = installed.PendingBackup
+	resultOut.Previous = installed.Previous
 	if installed.RolledBack {
 		u.reportOutcome(ctx, Event{Kind: EventRolledBack, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name})
 	}

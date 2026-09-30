@@ -1016,6 +1016,8 @@ func (s *StandaloneInstaller) CleanupPending(ctx context.Context) error
 3. **`KeepPrevious` on Windows.** The backup is a hard link to the running
    image. Renaming the running image's primary name is documented to work
    (golang/go#21997). Renaming a *hard link* to it is **unverified**.
+   *(2026-09-30: verified on the Windows test host; the success branch
+   below applies. See the execution record.)*
    * The step therefore starts with a Windows-host experiment: rename a
      hard link to a running test binary with `MoveFileEx`.
    * If it succeeds, the rule above applies on Windows too.
@@ -1836,3 +1838,125 @@ caught it before the tests above were written.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
 * No deviation: the API is the PLAN's, and nothing the MADR states changed.
+
+### Step 10: lifecycle (2026-09-30)
+
+**The Windows experiment (rule 3), run first.** It was a Windows-only test in
+a scratch copy, never in the tree.
+
+* It started a copy of the test binary as a helper process, and took the
+  backup with the package's own `backupFile`. The backup was a hard link to
+  the running image: `os.SameFile` was true.
+* It replaced the running image with `moveFileReplace`, then renamed the
+  backup to `.helper.exe.previous` with `moveFileReplace`, first with no
+  such file and then over an existing one.
+* Both renames returned `<nil>` after about 1 ms. The renamed file held the
+  old image's bytes, was still the running image, and the backup name was
+  gone.
+
+So the rule applies on Windows too, and the fallback was not needed.
+`TestKeepPreviousRunningImage` keeps the experiment in the suite.
+
+**What changed.**
+
+* **`types.go`** appends `Request.DryRun`, `Result.DryRun` and
+  `Result.Previous`, `InstallResult.Previous`, and
+  `InstallOptions.KeepPrevious`.
+* **`version.go`.** `validateRequest` refuses `CheckOnly && DryRun` with
+  `selfupdate: --check and --dry-run are contradictory`.
+* **`updater.go`.**
+  * `Result.DryRun` echoes the request from the start, so `OperationNone`
+    returns it too.
+  * A dry run skips the confirmer.
+  * After the staged probes, a dry run records both digests, closes the
+    session (which removes the staging file), emits `EventComplete` with
+    `Detail: "dry run: verified, nothing installed"`, and returns. It never
+    reaches `EventInstalling` or `Install`.
+  * `Result.Previous` is copied from `InstallResult.Previous`.
+* **`session.go`.**
+  * `previousPath(target)` is `Dir/"."+base+".previous"`.
+  * `commitLocked` is used by `Install` and `Commit`. Without
+    `keepPrevious`, or with no backup, it is `commitReplacement`, as before.
+    Otherwise it renames the backup over `previousPath` through
+    `replacePath` with the retry budget, syncs the directory, and returns
+    the path, so no Windows cleanup receipt is written.
+* **`standalone.go`** carries `KeepPrevious` into the session, and adds
+  `CleanupPending`: `resolveTarget`, `beginSession` (which processes the
+  receipt), then `Close`. Its doc comment says an `ErrConcurrentUpdate` is
+  benign.
+
+**Tests.**
+
+* **`lifecycle_test.go`:**
+  * `TestDryRunLeavesTargetUntouched`: the target's bytes, no staging or
+    backup left, no `EventInstalling`, the last event, one staged probe,
+    and `Result`.
+  * `TestDryRunNeedsNoConfirmation`: zero confirmer calls.
+  * `TestCheckAndDryRunRejected`.
+  * `TestKeepPrevious`: the old bytes replace an older `.demo.previous`,
+    no backup is left, and `Result.Previous` is set through `Run`.
+  * `TestKeepPreviousManaged`.
+  * `TestCleanupPendingProcessesReceipt`.
+  * `TestCleanupPendingLocked`: `ErrConcurrentUpdate` under a held lock,
+    then two calls in a row succeed.
+  * Beyond the PLAN's list: `TestDryRunEchoedWhenUpToDate` and
+    `TestKeepPreviousOffRemovesBackup`.
+* **`lifecycle_windows_test.go`:** the Windows `plantPendingCleanup`, a
+  backup under a real receipt, and `TestKeepPreviousRunningImage`. That
+  test replaces a running helper with `KeepPrevious`, and asserts no
+  pending backup, no receipt, and a `.previous` that is the running image.
+* **`lifecycle_other_test.go`:** the Unix `plantPendingCleanup`, a stale
+  receipt.
+
+**A test bug found on the Windows host.** The first run of
+`TestKeepPreviousRunningImage` failed on its last identity check with
+`previous is not the running image`; every other assertion passed. On
+Windows, `os.Stat` loads the file ID lazily, from the path, at the first
+`os.SameFile`, and the test's first comparison came after `exe` named the
+new binary. The experiment had compared earlier, so it saw the right ID. The
+test now loads the ID right after the `Stat`, and passes. The assertion is
+unchanged.
+
+**Mutation proofs.** Eleven local mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| dry run calls `Install` | `a dry run changed the target: 9978226 bytes` |
+| dry run asks for confirmation | `confirmer calls = 1, …` |
+| `DryRun` not echoed | `TestDryRunEchoedWhenUpToDate`: `res = {… Operation:none …}` |
+| check and dry run accepted together | `err = <nil>` |
+| `KeepPrevious` removes the backup | `TestKeepPrevious`: `res = {…}` |
+| `Install` drops `Previous` | `TestKeepPrevious`: `res = {…}` |
+| `Result` drops `Previous` | `Result.Previous = ""` |
+| the managed `Commit` ignores `KeepPrevious` | `TestKeepPreviousManaged`: `res = {…}` |
+| `Begin` does not carry `KeepPrevious` | `TestKeepPrevious`: `res = {…}` |
+| `CleanupPending` does not `Close` | `CleanupPending call 2 = selfupdate: concurrent update` |
+| `CleanupPending` skips the session | `.demo.selfupdate.cleanup remains after CleanupPending` |
+
+The first `Install drops Previous` spec did not compile: the removed field
+left `previous` unused. It was rewritten to `previous[:0]` and then killed.
+
+On the Windows host, two more:
+
+* `KeepPrevious` off failed `TestKeepPrevious`, `TestKeepPreviousManaged`
+  and `TestKeepPreviousRunningImage`.
+* `CleanupPending` without its session failed
+  `TestCleanupPendingProcessesReceipt`
+  (`.demo.selfupdate-bak-pending remains …`,
+  `.demo.selfupdate.cleanup remains …`) and `TestCleanupPendingLocked`.
+
+**Deviation D4 (2026-09-30): two per-OS test files.**
+
+* **Found.** `writeCleanupReceipt` exists only on Windows, so a portable
+  `lifecycle_test.go` cannot plant a real receipt.
+* **Decision.** `lifecycle_windows_test.go` and `lifecycle_other_test.go`
+  each provide `plantPendingCleanup`, and the Windows file carries the
+  running-image test. They are test files only, and no product file was
+  added.
+* **MADR.** No MADR change: it makes no claim about renaming on Windows.
+
+**Checks.**
+
+* `make pre-add-check` passed on the eight files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
