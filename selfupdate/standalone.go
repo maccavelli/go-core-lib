@@ -11,6 +11,7 @@ import (
 type StandaloneInstaller struct {
 	policy      TargetPolicy
 	lockTimeout time.Duration
+	postInstall Prober
 }
 
 // NewStandaloneInstaller returns a binary-only installer. LockTimeout zero
@@ -23,7 +24,11 @@ func NewStandaloneInstaller(opts InstallOptions) (*StandaloneInstaller, error) {
 	if timeout < 0 {
 		return nil, fmt.Errorf("selfupdate: lock timeout must not be negative")
 	}
-	return &StandaloneInstaller{policy: opts.TargetPolicy, lockTimeout: timeout}, nil
+	s := &StandaloneInstaller{policy: opts.TargetPolicy, lockTimeout: timeout}
+	if !isNil(opts.PostInstall) {
+		s.postInstall = opts.PostInstall
+	}
+	return s, nil
 }
 
 // ResolveTarget implements Installer.
@@ -33,5 +38,10 @@ func (s *StandaloneInstaller) ResolveTarget(context.Context) (Target, error) {
 
 // Begin implements Installer.
 func (s *StandaloneInstaller) Begin(ctx context.Context, target Target) (InstallSession, error) {
-	return beginSession(ctx, s.policy, target, s.lockTimeout)
+	sess, err := beginSession(ctx, s.policy, target, s.lockTimeout)
+	if err != nil {
+		return nil, err
+	}
+	sess.postInstall = s.postInstall
+	return sess, nil
 }

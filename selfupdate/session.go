@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -25,7 +26,25 @@ type installSession struct {
 	dirInfo os.FileInfo
 	// lockTimeout also bounds the Windows busy-image retry (0004-MADR R4).
 	lockTimeout time.Duration
+	// postInstall runs the installed binary before commit (0004-MADR G9).
+	postInstall Prober
 }
+
+// stagingSuffix gives staging the executable extension on Windows. exec
+// does not need it (a staging name always contains a dot, and the
+// Windows host ran an extensionless staging file); it keeps the file
+// recognisable as an executable to tools that key on the extension
+// (0004-PLAN-v1-1-0-core-api.md Step 8, deviation D3).
+func stagingSuffix() string {
+	if runtime.GOOS == goosWindows {
+		return ".exe"
+	}
+	return ""
+}
+
+// errProbeRolledBack marks a post-install probe failure whose replacement
+// was rolled back.
+var errProbeRolledBack = errors.New("selfupdate: the replacement was rolled back")
 
 func (s *installSession) Target() Target {
 	return s.target
@@ -40,7 +59,7 @@ func (s *installSession) CreateStaging(ctx context.Context) (*os.File, string, e
 	if s.closed {
 		return nil, "", fmt.Errorf("selfupdate: session is closed")
 	}
-	f, err := os.CreateTemp(s.target.Dir, "."+s.target.Base+".selfupdate-")
+	f, err := os.CreateTemp(s.target.Dir, "."+s.target.Base+".selfupdate-*"+stagingSuffix())
 	if err != nil {
 		return nil, "", fmt.Errorf("selfupdate: create staging: %w", err)
 	}
@@ -83,6 +102,12 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 		}
 		return InstallResult{Target: s.target.Path, RolledBack: true}, err
 	}
+	if err := s.probeInstalled(ctx, req, applied); err != nil {
+		if errors.Is(err, errProbeRolledBack) {
+			return InstallResult{Target: s.target.Path, RolledBack: true}, err
+		}
+		return InstallResult{Target: s.target.Path, Backup: applied.backup}, err
+	}
 	pending, err := commitReplacement(s.target, applied)
 	if err != nil {
 		return InstallResult{
@@ -106,7 +131,38 @@ func (s *installSession) apply(ctx context.Context, req InstallRequest) (applyRe
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.replaceLocked(ctx, req.Artifact.Path)
+	applied, err := s.replaceLocked(ctx, req.Artifact.Path)
+	if err != nil {
+		return applied, err
+	}
+	if err := s.probeInstalled(ctx, req, applied); err != nil {
+		if errors.Is(err, errProbeRolledBack) {
+			return applyResult{}, err
+		}
+		return applied, err
+	}
+	return applied, nil
+}
+
+// probeInstalled runs the post-install probe on the replaced target. On
+// failure it rolls the replacement back; the error wraps
+// errProbeRolledBack when that succeeded. The caller holds s.mu.
+func (s *installSession) probeInstalled(ctx context.Context, req InstallRequest, applied applyResult) error {
+	if s.postInstall == nil {
+		return nil
+	}
+	perr := s.postInstall.Probe(ctx, ProbeRequest{
+		Product: req.Product, TargetVersion: req.TargetVersion, Path: s.target.Path, Phase: ProbeInstalled,
+	})
+	if perr == nil {
+		return nil
+	}
+	perr = fmt.Errorf("selfupdate: installed binary failed its probe: %w", perr)
+	rctx := withRetryBudget(context.WithoutCancel(ctx), s.lockTimeout)
+	if rerr := rollbackReplacement(rctx, s.target, applied); rerr != nil {
+		return errors.Join(perr, rerr)
+	}
+	return errors.Join(perr, errProbeRolledBack)
 }
 
 // replaceLocked replaces the target with an owned staging file. The caller

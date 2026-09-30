@@ -2,15 +2,28 @@ package selfupdate
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
+	// The probe tests run this binary as the "new release": it prints a
+	// version, optionally after a delay or with a failing exit code
+	// (docs/decisions/0004-PLAN-v1-1-0-core-api.md Step 8).
+	if v, ok := os.LookupEnv("SELFUPDATE_TEST_PRINT_VERSION"); ok {
+		if d, err := time.ParseDuration(os.Getenv("SELFUPDATE_TEST_SLEEP")); err == nil {
+			time.Sleep(d)
+		}
+		fmt.Println(v)
+		code, _ := strconv.Atoi(os.Getenv("SELFUPDATE_TEST_EXIT"))
+		os.Exit(code)
+	}
 	if os.Getenv("SELFUPDATE_NATIVE_HELPER") == "1" {
 		nativeHelper()
 		os.Exit(0)

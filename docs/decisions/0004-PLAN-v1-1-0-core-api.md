@@ -847,7 +847,9 @@ func NewVersionProber(args []string, want func(tag string) string, timeout time.
    * `CreateProcess` assumes no default extension for
      `lpApplicationName` (Microsoft `CreateProcessW` documentation).
 
-   Without `.exe`, whether the probe can run at all is unverified.
+   ~~Without `.exe`, whether the probe can run at all is unverified.~~
+   *(Deviation D3, 2026-09-30: verified that it runs without `.exe`; the
+   suffix is kept as a convention. See the execution record.)*
 2. **Staged probes.** `Config.Probes` run in order after verification and
    the optional transform and its re-hash, and before `EventInstalling`.
    * Before the first probe the staged file is chmodded to `0o700`.
@@ -890,7 +892,8 @@ func NewVersionProber(args []string, want func(tag string) string, timeout time.
 * `TestProbesRunBeforeInstall`: the order, and the target is untouched on
   failure.
 * `TestStagedProbeRunsRealBinary`: macOS, Linux and the Windows host,
-  where it proves the `.exe` rule.
+  ~~where it proves the `.exe` rule~~ *(D3: it does not; the suffix is
+  asserted by `TestProbeRequestFields`)*.
 * `TestPostInstallRollback`.
 * `TestPostInstallRollbackFailureReportsBackup`.
 * `TestVersionProberMatch`, `…Mismatch`, `…NonZeroExit` and `…Timeout`.
@@ -901,7 +904,7 @@ func NewVersionProber(args []string, want func(tag string) string, timeout time.
 | Mutation | Must fail |
 | :--- | :--- |
 | no chmod before probes | `TestStagedProbeRunsRealBinary` (Unix) |
-| no `.exe` in the Windows pattern | `TestStagedProbeRunsRealBinary` (Windows host) |
+| no `.exe` in the Windows pattern | ~~`TestStagedProbeRunsRealBinary` (Windows host)~~ `TestProbeRequestFields` (Windows host), deviation D3 |
 | `PostInstall` ignored | `TestPostInstallRollback` |
 | probes run after `Install` | `TestProbesRunBeforeInstall` |
 | `strings.Contains` becomes `==` | `TestVersionProberMatch` (the helper prints `demo v1.1.0`) |
@@ -1643,3 +1646,107 @@ diagnostic for each case.
   `unconvert`, because `macho.MagicFat` is already `uint32`.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`, including the cross-built fixtures.
+
+### Step 8: probes and runnable staging (2026-09-30)
+
+**What changed.**
+
+* **`probe.go`** (new) adds `ProbePhase` (`ProbeStaged`, `ProbeInstalled`),
+  `ProbeRequest`, `Prober`, `ProberFunc` and `NewVersionProber`.
+  * `versionProber.Probe` runs the binary under a timeout with
+    `WaitDelay = time.Second`, keeps at most 64 KiB of stdout, and passes
+    when the exit is 0 and stdout contains `want(TargetVersion)`.
+  * A failure says "timed out", "failed", or "printed %q, want %q", with the
+    first stdout line sanitised.
+* **`types.go`** appends `Config.Probes`, `InstallOptions.PostInstall` and
+  `InstallRequest.TargetVersion`.
+* **`updater.go`.** `New` refuses a nil probe. `runProbes` chmods the
+  staging file `0o700` and runs each probe with `ProbeStaged`, after the
+  transform and before `EventInstalling`. The coordinator sets
+  `InstallRequest.TargetVersion` to `rel.Tag`.
+* **`session.go`.**
+  * `stagingSuffix()` is `.exe` on Windows and empty elsewhere, and is
+    appended to the `CreateStaging` pattern.
+  * `probeInstalled` runs `PostInstall` on `target.Path` with
+    `ProbeInstalled`. On failure it rolls back on
+    `context.WithoutCancel` with the retry budget, and joins
+    `errProbeRolledBack`, or the rollback error when rollback fails.
+  * `Install` runs it after `checkDir` and before commit, setting
+    `RolledBack` or, when rollback failed, `Backup`. `apply` runs it after
+    `replaceLocked`.
+* **`standalone.go`** carries `PostInstall` into the session; **`managed.go`**
+  reports `RolledBack` when the probe's rollback succeeded.
+* **`replace_native_test.go`.** The existing `TestMain` gains the
+  `SELFUPDATE_TEST_PRINT_VERSION` branch, with optional
+  `SELFUPDATE_TEST_SLEEP` and `SELFUPDATE_TEST_EXIT`.
+
+**Tests** (`probe_test.go`, 11 tests). The release bodies are the test
+binary itself.
+
+* `TestStagedProbeRunsRealBinary` and `TestProbesRunBeforeInstall`.
+* `TestPostInstallRollback`, `TestPostInstallRollbackFailureReportsBackup`
+  and `TestPostInstallManaged`.
+* `TestVersionProberMatch`, `…Mismatch`, `…NonZeroExit` and `…Timeout`.
+* `TestProbeRequestFields`. It compares against the `EvalSymlinks` form of
+  the target, because the macOS temporary directory resolves through the
+  `/var` symlink, and on Windows it asserts the `.exe` suffix.
+* `TestNewVersionProberArguments`.
+
+**Mutation proofs.** Seven local mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| no chmod before probes | `TestStagedProbeRunsRealBinary` (`probe_test.go:81`): the run failed, `res={… Applied:false …}` |
+| `PostInstall` ignored | `TestPostInstallRollback` (`probe_test.go:148`): `res={… Applied:true …}` |
+| probes run after `Install` | `a mismatched version was installed` |
+| `strings.Contains` becomes `==` | `printed "demo v1.1.0 (linux/amd64)", want "v1.1.0"` |
+| post-install rollback not attempted | `TestPostInstallRollback` (`probe_test.go:148`) |
+| the timeout is not applied | `err=<nil> after 10.015076792s` |
+| `InstallRequest` carries no tag | `installed request {Product:demo TargetVersion: …}` |
+
+On the Windows test host, `stagingSuffix` returning `""` was killed only by
+`TestProbeRequestFields`: `Windows staging "<path>" does not end in .exe`.
+`TestStagedProbeRunsRealBinary` passed. See D3.
+
+**Deviation D2 (2026-09-30): two line-scoped `gosec` exemptions.**
+
+* **Found.** `make pre-add-check` failed on two new lines, neither
+  pre-existing:
+  * `selfupdate/probe.go`, `exec.CommandContext(ctx, r.Path, p.args...)`:
+    G204, "Subprocess launched with a potential tainted input or cmd
+    arguments". Running the binary is the probe's purpose.
+  * `selfupdate/updater.go`, `os.Chmod(stagedPath, 0o700)`: G302, "Expect
+    file permissions to be 0600 or less". The staged binary must be
+    executable to be probed.
+  * The repository had no `//nolint`, and `.golangci.yml` excludes only
+    G104.
+* **Decision.** The owner chose a `//nolint:gosec` on exactly those two
+  lines, each with its rule and reason. `.golangci.yml` is unchanged, and
+  these are the repository's first `nolint` directives.
+* **Scope proof.** On a scratch copy, `gosec` over `./selfupdate/...`
+  reported 0 issues. Adding one unexempted `os.Chmod(p, 0o755)` and one
+  `exec.CommandContext(ctx, r.Path, args...)` elsewhere in `probe.go` made it
+  exit 1 with exactly those two, G302 and G204.
+* **MADR.** No MADR change: nothing it states is affected.
+
+**Deviation D3 (2026-09-30): the `.exe` suffix is not needed to run staging.**
+
+* **Found.** On the Windows test host, with `stagingSuffix` returning `""`,
+  `TestStagedProbeRunsRealBinary` passed: an extensionless staging file
+  ran. A staging name always contains a dot (`.demo.selfupdate-NNN`), so
+  `os/exec` on Windows treats it as having an extension and passes the path
+  to `CreateProcess` as it is. Behaviour rule 1's "unverified" and the
+  planned mutation row were wrong.
+* **Decision.** The owner kept the suffix, as a convention for tools that
+  key on the extension. The `stagingSuffix` comment states that reason
+  instead of claiming `exec` needs it. The `.exe` mutation is killed by
+  `TestProbeRequestFields`'s suffix assertion.
+* **MADR.** Annotated where it says staging lacked `.exe` (the capability
+  table and the §3 sketch), and noted in the §3 amendment block.
+
+**Checks.**
+
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...` on the Step 8 tree before D2 and D3. Those
+  two change only comments; the `windows` lint target runs in
+  `make pre-add-check`.

@@ -333,6 +333,8 @@ type InstallRequest struct {
 	Product string
 	// Artifact is the session-owned staged binary.
 	Artifact StagedArtifact
+	// TargetVersion is the release tag being installed.
+	TargetVersion string
 }
 
 // InstallResult is the outcome of InstallSession.Install.
@@ -403,6 +405,10 @@ type InstallOptions struct {
 	// replacement the running image refuses while it is busy. Zero selects
 	// DefaultLockTimeout.
 	LockTimeout time.Duration
+	// PostInstall, when set, runs the installed binary after the
+	// replacement and before it is committed; a failure rolls the
+	// replacement back (0004-MADR G9).
+	PostInstall Prober
 }
 
 // DefaultLockTimeout is the lock acquisition bound when InstallOptions leaves
@@ -596,6 +602,10 @@ type Config struct {
 	// parsed, before the binary is downloaded. A failure aborts the run
 	// and matches ErrIntegrity (0004-MADR G9). No element may be nil.
 	ManifestVerifiers []ManifestVerifier
+	// Probes run the verified, runnable staging file, in order, after any
+	// transform and before anything is replaced (0004-MADR G9). No element
+	// may be nil.
+	Probes []Prober
 }
 
 // Updater is the coordinator. Unexported collaborator fields are populated
@@ -613,4 +623,5 @@ type Updater struct {
 	running     atomic.Bool
 	progress    time.Duration
 	manifestVfy []ManifestVerifier
+	probes      []Prober
 }

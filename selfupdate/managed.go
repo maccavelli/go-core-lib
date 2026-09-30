@@ -143,6 +143,11 @@ func (s *managedSession) recover(parent context.Context, product string, applied
 			result = InstallResult{Target: s.inner.target.Path, RolledBack: true}
 		}
 	}
+	if errors.Is(origin, errProbeRolledBack) {
+		// The session rolled back a replacement that failed its
+		// post-install probe before recovery began.
+		result = InstallResult{Target: s.inner.target.Path, RolledBack: true}
+	}
 	if restart {
 		if err := s.life.Start(ctx, product); err != nil {
 			recov = errors.Join(recov, err)

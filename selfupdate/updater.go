@@ -52,6 +52,11 @@ func New(cfg Config) (*Updater, error) {
 			return nil, fmt.Errorf("selfupdate: manifest verifier %d is nil", i)
 		}
 	}
+	for i, p := range cfg.Probes {
+		if isNil(p) {
+			return nil, fmt.Errorf("selfupdate: probe %d is nil", i)
+		}
+	}
 	if cfg.Transformer != nil && isNil(cfg.Transformer) {
 		return nil, fmt.Errorf("selfupdate: transformer is a typed nil")
 	}
@@ -78,6 +83,7 @@ func New(cfg Config) (*Updater, error) {
 		limits:      cfg.Limits,
 		progress:    cfg.ProgressInterval,
 		manifestVfy: append([]ManifestVerifier(nil), cfg.ManifestVerifiers...),
+		probes:      append([]Prober(nil), cfg.Probes...),
 	}, nil
 }
 
@@ -278,11 +284,15 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 			return resultOut, wrapRun(req, err)
 		}
 	}
+	if err = u.runProbes(ctx, req, rel, stagedPath); err != nil {
+		return resultOut, wrapRun(req, err)
+	}
 	if rerr := u.report(ctx, Event{Kind: EventInstalling, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name}); rerr != nil {
 		return resultOut, wrapRun(req, rerr)
 	}
 	installed, instErr := sess.Install(ctx, InstallRequest{
-		Product: req.Product,
+		Product:       req.Product,
+		TargetVersion: rel.Tag,
 		Artifact: StagedArtifact{
 			Path: stagedPath, Size: installedSize,
 			ReleaseDigest: releaseDigest, InstalledDigest: installedDigest,
@@ -336,6 +346,25 @@ func retainedPath(target Target, p string) string {
 		return p
 	}
 	return filepath.Join(target.Dir, p)
+}
+
+// runProbes runs Config.Probes on the staging file, first making it
+// runnable: CreateTemp creates it 0600 (0004-MADR G9).
+func (u *Updater) runProbes(ctx context.Context, req Request, rel Release, stagedPath string) error {
+	if len(u.probes) == 0 {
+		return nil
+	}
+	if err := os.Chmod(stagedPath, 0o700); err != nil { //nolint:gosec // G302: the staged binary must be executable to probe it
+		return fmt.Errorf("selfupdate: make staging runnable: %w", err)
+	}
+	for _, p := range u.probes {
+		if err := p.Probe(ctx, ProbeRequest{
+			Product: req.Product, TargetVersion: rel.Tag, Path: stagedPath, Phase: ProbeStaged,
+		}); err != nil {
+			return fmt.Errorf("selfupdate: staged binary failed a probe: %w", err)
+		}
+	}
+	return nil
 }
 
 func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, manifestDigest, ghDigest string) error {

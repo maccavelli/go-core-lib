@@ -164,7 +164,7 @@ ocp-login is the benchmark for the TUI question. Its updater has features
 | Save a credential only after it is accepted | yes, with read-back | no seam (G10) |
 | Byte progress, throttled, with an unknown-total rule | yes | no (G5) |
 | Executable format and architecture check | yes (ELF, Mach-O, PE) | no (G9) |
-| Smoke test before and after install | yes | no, and staging is not runnable (mode 0600, no `.exe`) (G9) |
+| Smoke test before and after install | yes | no, and staging is not runnable (mode 0600, no `.exe`) (G9) *(corrected: on Windows an extensionless staging file runs; see the §3 amendments)* |
 | Dry run | yes | no (G11) |
 | Inline Bubble Tea front end, ctrl+c cancels | yes (`steps.go`) | no framework-neutral bridge exists |
 | Immutable releases, advertised-size check, lock, backup and restore, rate-limit errors | no | yes |
@@ -352,6 +352,10 @@ additive.
   * **A7.** `EventDeclined`, `EventFailed` and `EventRolledBack` are
     advisory, like progress.
   * **A8.** `NewTextReporter` skips `EventProgress`.
+* **A corrected fact (Step 8 deviation D3).** The Windows test host ran an
+  extensionless staging file, so a missing `.exe` never made staging
+  unrunnable; on Unix the `0600` mode does. The suffix is kept as a
+  convention.
 
 **Querying without installing (G3, G4).**
 
@@ -497,7 +501,8 @@ type Prober interface { // amended A2: Probe(ctx, ProbeRequest) error
 func NewVersionProber(args []string, want func(tag string) string, timeout time.Duration) Prober
 func NewImageVerifier(p Platform) Verifier // debug/elf, debug/macho, debug/pe
 // Config.Probes []Prober run on the staged file. Staging becomes runnable
-// for this: mode 0700, plus ".exe" on Windows.
+// for this: mode 0700, plus ".exe" on Windows (a convention, not needed
+// to run it: see the §3 amendments).
 // InstallOptions.PostInstall Prober runs on the installed path; a failure
 // rolls back.
 
