@@ -1500,3 +1500,73 @@ Two first drafts were invalid mutations and were rewritten:
 * `make pre-add-check` passed on the eight files.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
+
+### Step 6: credentials (2026-09-30)
+
+**What changed.**
+
+* **`credentials.go`** adds `Credential`, `CredentialRequest`,
+  `CredentialProvider`, `CredentialObserver`, `ErrNoCredential`,
+  `ChainCredentials` and `EnvCredential`, with `validateCredential`.
+* **`types.go`** appends `GitHubOptions.Credentials` and `.Observer`.
+* **`github.go`.**
+  * `GitHubSource` keeps `token` with its v1.0 meaning (explicit, else
+    `GH_TOKEN`, else `GITHUB_TOKEN`), so the existing `TestGitHubTokenOrder`
+    passes unchanged. It adds `explicit` and `envName`, and a mutex-guarded
+    `credentialState` resolved on the first API request.
+  * Both request sites go through `send`, which:
+    * attaches the credential only on the API origin;
+    * after a 401 asks the provider once more and retries once;
+    * tells `Observer` once, after a 2xx.
+  * `checkRedirect` also deletes a provider's own header on a cross-origin
+    hop.
+* **The retry is once per source**, not once per request, so a provider
+  that prompts can never be asked in a loop. The PLAN said "once more"
+  without saying per what. The doc comment states the choice, and a test
+  pins it.
+* **`drainClose`** routes its discarded errors through `advisory`, whose
+  doc now covers both uses; errcheck's `check-blank` stays on.
+* **The test servers** are the two plain-HTTP loopback servers the
+  existing GitHub tests use: two ports are two origins, and loopback is
+  exempt from the HTTPS rule. The TLS pair arrives in Step 11, as planned.
+
+**Tests** (`credentials_test.go`). Twelve tests:
+
+* order: explicit token, then provider, then environment;
+* lazy resolution;
+* fall-through, including to a chain's second link;
+* a provider error fails the request before any request is sent;
+* the two header modes;
+* invalid credentials refused without echoing the secret;
+* stripping across origins in both modes;
+* `Accepted` once, and never for a refused credential;
+* the 401 retry once, and once per source;
+* no resend of the same credential, and no retry for an explicit token;
+* `EnvCredential`'s source label;
+* eight concurrent first requests share one provider call.
+
+**Mutation proofs.** Nine mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the custom header not stripped | `credential "X-Api-Key" reached the asset host` |
+| `Accepted` before the response | `Accepted called for a refused credential` |
+| the retry may repeat | `the provider was asked 3 times; the retry is once per source` |
+| the provider before `Token` | `request 0: Authorization "Bearer prov", want "Bearer explicit"` |
+| the per-source cache dropped | `provider asked 2 times for two requests` |
+| the same credential resent | `2 requests; the same credential must not be resent` |
+| an invalid header accepted | `credential "Bad Header": err = … invalid header field name` |
+| the chain stops at `ErrNoCredential` | `the chain did not fall through to its second link` |
+| the env label wrong | `… Source:env …` |
+
+Two mutations survived the first run: the retry mutation and the chain
+mutation. Each exposed a missing case, not a defect: nothing sent a
+second request after the one retry, and no chain had a later link that
+supplied a credential. Both cases were added.
+
+**Checks.**
+
+* `make pre-add-check` passed on the five files, after two lint fixes:
+  `bytes.Equal`, and the `drainClose` sink.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.

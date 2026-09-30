@@ -168,6 +168,13 @@ type GitHubOptions struct {
 	Token string
 	// Limits bound JSON, error, manifest, and executable bodies.
 	Limits Limits
+	// Credentials is asked lazily, on the first API request, after Token
+	// and before GH_TOKEN and GITHUB_TOKEN (0004-MADR G10). Nil keeps the
+	// v1.0 behaviour.
+	Credentials CredentialProvider
+	// Observer learns when a credential was accepted by a successful
+	// API response. It is called once per source.
+	Observer CredentialObserver
 }
 
 // Release is one GitHub release after JSON decoding and field validation.

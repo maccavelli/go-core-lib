@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -35,9 +36,26 @@ type GitHubSource struct {
 	client    *http.Client
 	apiBase   *url.URL
 	userAgent string
-	token     string
+	token     string // the explicit Token, else GH_TOKEN, else GITHUB_TOKEN
+	explicit  bool   // token came from GitHubOptions.Token
+	envName   string // the variable token came from, when not explicit
+	provider  CredentialProvider
+	observer  CredentialObserver
 	limits    Limits
 	now       func() time.Time
+	cred      credentialState
+}
+
+// credentialState is the source's one resolved credential, resolved on
+// the first API request and shared by every later one.
+type credentialState struct {
+	mu           sync.Mutex
+	resolved     bool
+	has          bool
+	cred         Credential
+	fromProvider bool
+	retried      bool
+	accepted     bool
 }
 
 // NewGitHubSource validates options, clones the supplied client, and resolves
@@ -63,14 +81,23 @@ func NewGitHubSource(opts GitHubOptions) (*GitHubSource, error) {
 		return nil, err
 	}
 	cloned := *opts.Client
+	token, envName := resolveToken(opts.Token)
 	src := &GitHubSource{
 		repo:      opts.Repository,
 		client:    &cloned,
 		apiBase:   base,
 		userAgent: opts.UserAgent,
-		token:     resolveToken(opts.Token),
+		token:     token,
+		explicit:  opts.Token != "",
+		envName:   envName,
 		limits:    opts.Limits,
 		now:       timeNow,
+	}
+	if !isNil(opts.Credentials) {
+		src.provider = opts.Credentials
+	}
+	if !isNil(opts.Observer) {
+		src.observer = opts.Observer
 	}
 	src.client.CheckRedirect = src.checkRedirect
 	return src, nil
@@ -99,14 +126,18 @@ func validateUserAgent(ua string) error {
 	return nil
 }
 
-func resolveToken(explicit string) string {
+// resolveToken returns the explicit token, else GH_TOKEN, else
+// GITHUB_TOKEN, with the name of the variable it came from.
+func resolveToken(explicit string) (token, envName string) {
 	if explicit != "" {
-		return explicit
+		return explicit, ""
 	}
-	if v := lookupEnv("GH_TOKEN"); v != "" {
-		return v
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if v := lookupEnv(name); v != "" {
+			return v, name
+		}
 	}
-	return lookupEnv("GITHUB_TOKEN")
+	return "", ""
 }
 
 func normalizeAPIBase(raw *url.URL) (*url.URL, error) {
@@ -154,6 +185,14 @@ func (s *GitHubSource) checkRedirect(req *http.Request, via []*http.Request) err
 	}
 	if !sameOrigin(req.URL, s.apiBase) {
 		req.Header.Del("Authorization")
+		// A provider's own header is scrubbed too: a credential goes only
+		// to the origin it was requested for (0004-MADR G10).
+		s.cred.mu.Lock()
+		header := s.cred.cred.Header
+		s.cred.mu.Unlock()
+		if header != "" {
+			req.Header.Del(header)
+		}
 	}
 	return nil
 }
@@ -211,11 +250,7 @@ type githubAssetJSON struct {
 }
 
 func (s *GitHubSource) getRelease(ctx context.Context, rawURL string) (rel Release, err error) {
-	req, err := s.newRequest(ctx, http.MethodGet, rawURL, gitHubAcceptJSON)
-	if err != nil {
-		return Release{}, err
-	}
-	resp, err := s.client.Do(req)
+	resp, err := s.send(ctx, rawURL, gitHubAcceptJSON)
 	if err != nil {
 		return Release{}, err
 	}
@@ -354,11 +389,7 @@ func (s *GitHubSource) OpenAsset(ctx context.Context, rel Release, asset Asset) 
 		return nil, err
 	}
 	rawURL := s.apiURL("repos", s.repo.Owner, s.repo.Name, "releases", "assets", strconv.FormatInt(asset.ID, 10))
-	req, err := s.newRequest(ctx, http.MethodGet, rawURL, gitHubAcceptAsset)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := s.client.Do(req)
+	resp, err := s.send(ctx, rawURL, gitHubAcceptAsset)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +408,7 @@ func (s *GitHubSource) OpenAsset(ctx context.Context, rel Release, asset Asset) 
 	return resp.Body, nil
 }
 
-func (s *GitHubSource) newRequest(ctx context.Context, method, rawURL, accept string) (*http.Request, error) {
+func (s *GitHubSource) newRequest(ctx context.Context, method, rawURL, accept string, cred *Credential) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -385,10 +416,143 @@ func (s *GitHubSource) newRequest(ctx context.Context, method, rawURL, accept st
 	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", gitHubAPIVersion)
 	req.Header.Set("User-Agent", s.userAgent)
-	if s.token != "" && sameOrigin(req.URL, s.apiBase) {
-		req.Header.Set("Authorization", "Bearer "+s.token)
+	if cred != nil && sameOrigin(req.URL, s.apiBase) {
+		if cred.Header == "" {
+			req.Header.Set("Authorization", "Bearer "+string(cred.Value))
+		} else {
+			req.Header.Set(cred.Header, string(cred.Value))
+		}
 	}
 	return req, nil
+}
+
+// send issues one GET with the source's credential attached when the URL
+// is on the API origin. A 401 to a provider's credential asks the
+// provider once more and retries once with a different credential; this
+// happens at most once per source, so a provider that prompts is never
+// asked in a loop. The first 2xx to a credentialed request tells the
+// Observer (0004-MADR G10).
+func (s *GitHubSource) send(ctx context.Context, rawURL, accept string) (*http.Response, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	var cred *Credential
+	if sameOrigin(parsed, s.apiBase) {
+		if cred, err = s.credential(ctx); err != nil {
+			return nil, err
+		}
+	}
+	resp, err := s.do(ctx, rawURL, accept, cred)
+	if err != nil {
+		return nil, err
+	}
+	if cred != nil && resp.StatusCode == http.StatusUnauthorized {
+		if next := s.refresh(ctx, cred); next != nil {
+			drainClose(resp)
+			cred = next
+			if resp, err = s.do(ctx, rawURL, accept, cred); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if cred != nil && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		s.accept(ctx, *cred)
+	}
+	return resp, nil
+}
+
+func (s *GitHubSource) do(ctx context.Context, rawURL, accept string, cred *Credential) (*http.Response, error) {
+	req, err := s.newRequest(ctx, http.MethodGet, rawURL, accept, cred)
+	if err != nil {
+		return nil, err
+	}
+	return s.client.Do(req)
+}
+
+// drainClose discards a refused response before its retry. Nothing depends
+// on it, so its errors must not change the outcome.
+func drainClose(resp *http.Response) {
+	_, cerr := io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	advisory(errors.Join(cerr, resp.Body.Close()))
+}
+
+// credential resolves the source's credential once: the explicit Token,
+// else the provider, else the environment token. Nil means anonymous.
+func (s *GitHubSource) credential(ctx context.Context) (*Credential, error) {
+	s.cred.mu.Lock()
+	defer s.cred.mu.Unlock()
+	if !s.cred.resolved {
+		if err := s.resolveLocked(ctx); err != nil {
+			return nil, err
+		}
+		s.cred.resolved = true
+	}
+	if !s.cred.has {
+		return nil, nil
+	}
+	c := s.cred.cred
+	return &c, nil
+}
+
+func (s *GitHubSource) resolveLocked(ctx context.Context) error {
+	if s.explicit {
+		s.cred.cred, s.cred.has = Credential{Value: []byte(s.token), Source: "token"}, true
+		return nil
+	}
+	if s.provider != nil {
+		c, err := s.provider.Credential(ctx, CredentialRequest{Origin: s.origin()})
+		switch {
+		case err == nil:
+			if verr := validateCredential(c); verr != nil {
+				return verr
+			}
+			s.cred.cred, s.cred.has, s.cred.fromProvider = c, true, true
+			return nil
+		case !errors.Is(err, ErrNoCredential):
+			return err
+		}
+	}
+	if s.token != "" {
+		s.cred.cred, s.cred.has = Credential{Value: []byte(s.token), Source: "env:" + s.envName}, true
+	}
+	return nil
+}
+
+// refresh asks the provider once more after a 401. It returns the new
+// credential when it differs from the refused one, and nil otherwise: the
+// caller then returns the 401.
+func (s *GitHubSource) refresh(ctx context.Context, refused *Credential) *Credential {
+	s.cred.mu.Lock()
+	defer s.cred.mu.Unlock()
+	if !s.cred.fromProvider || s.cred.retried {
+		return nil
+	}
+	s.cred.retried = true
+	c, err := s.provider.Credential(ctx, CredentialRequest{
+		Origin: s.origin(),
+		Cause:  fmt.Errorf("selfupdate: github http %d: credential from %s refused", http.StatusUnauthorized, sanitizeText(refused.Source)),
+	})
+	if err != nil || validateCredential(c) != nil || sameCredential(c, *refused) {
+		return nil
+	}
+	s.cred.cred = c
+	return &c
+}
+
+func (s *GitHubSource) accept(ctx context.Context, c Credential) {
+	s.cred.mu.Lock()
+	first := !s.cred.accepted
+	s.cred.accepted = true
+	s.cred.mu.Unlock()
+	if first && s.observer != nil {
+		s.observer.Accepted(ctx, c)
+	}
+}
+
+func (s *GitHubSource) origin() *url.URL {
+	u := *s.apiBase
+	return &u
 }
 
 func (s *GitHubSource) mapStatus(resp *http.Response, body []byte) error {

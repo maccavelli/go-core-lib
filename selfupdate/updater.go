@@ -354,9 +354,10 @@ func (u *Updater) reportOutcome(ctx context.Context, ev Event) {
 	advisory(u.reporter.Report(context.WithoutCancel(ctx), ev))
 }
 
-// advisory is where the error from reporting an advisory event goes:
-// progress and outcome events never change a run's result (0004-MADR
-// amendments A1 and A7), so the error is dropped here, on purpose.
+// advisory is where an error goes that must not change the outcome: a
+// reporter error on an advisory event (0004-MADR amendments A1 and A7),
+// or the close of a response discarded for a retry. It is dropped here,
+// on purpose.
 func advisory(_ error) {}
 
 // failureClasses maps a run's error to EventFailed's Detail. The first
