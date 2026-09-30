@@ -255,7 +255,7 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	}); err != nil {
 		return resultOut, wrapRun(req, err)
 	}
-	if err = u.runVerifiers(ctx, req, rel, sel, stagedPath, releaseDigest, ghDigest); err != nil {
+	if err = u.runVerifiers(ctx, req, rel, sel, stagedPath, releaseDigest, manifestDigest, ghDigest); err != nil {
 		return resultOut, wrapRun(req, err)
 	}
 	// Verified precedes the optional transform (the EventKind order, and
@@ -264,6 +264,9 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 		return resultOut, wrapRun(req, rerr)
 	}
 	installedDigest := releaseDigest
+	// The staged size is the advertised one, which downloadAsset enforced,
+	// until a transform changes it (0004-MADR G8).
+	installedSize := sel.Binary.Size
 	if _, isNoop := u.transformer.(noopTransformer); !isNoop {
 		if rerr := u.report(ctx, Event{Kind: EventTransforming, Product: req.Product, Asset: sel.Binary.Name}); rerr != nil {
 			return resultOut, wrapRun(req, rerr)
@@ -273,7 +276,7 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 		}); err != nil {
 			return resultOut, wrapRun(req, err)
 		}
-		installedDigest, err = hashAndValidateStaging(sess, stagedPath, u.limits.Executable)
+		installedDigest, installedSize, err = hashAndValidateStaging(sess, stagedPath, u.limits.Executable)
 		if err != nil {
 			return resultOut, wrapRun(req, err)
 		}
@@ -284,7 +287,7 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	installed, instErr := sess.Install(ctx, InstallRequest{
 		Product: req.Product,
 		Artifact: StagedArtifact{
-			Path: stagedPath, Size: sel.Binary.Size,
+			Path: stagedPath, Size: installedSize,
 			ReleaseDigest: releaseDigest, InstalledDigest: installedDigest,
 		},
 	})
@@ -335,11 +338,11 @@ func retainedPath(target Target, p string) string {
 	return filepath.Join(target.Dir, p)
 }
 
-func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, ghDigest string) error {
+func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, manifestDigest, ghDigest string) error {
 	for _, v := range u.verifiers {
 		err := v.Verify(ctx, Verification{
 			Product: req.Product, Release: rel, Selection: sel,
-			Size: sel.Binary.Size, SHA256: digest, ManifestSHA256: digest, GitHubSHA256: ghDigest,
+			Size: sel.Binary.Size, SHA256: digest, ManifestSHA256: manifestDigest, GitHubSHA256: ghDigest,
 			Open: func() (io.ReadCloser, error) {
 				return openAbsFile(path, os.O_RDONLY, 0)
 			},
@@ -355,25 +358,27 @@ func (u *Updater) report(ctx context.Context, ev Event) error {
 	return u.reporter.Report(ctx, ev)
 }
 
-func hashAndValidateStaging(sess InstallSession, path string, limit int64) (string, error) {
+// hashAndValidateStaging returns the transformed staging file's digest and
+// size.
+func hashAndValidateStaging(sess InstallSession, path string, limit int64) (string, int64, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("selfupdate: transformed staging is not a regular file")
+		return "", 0, fmt.Errorf("selfupdate: transformed staging is not a regular file")
 	}
 	if info.Size() > limit {
-		return "", fmt.Errorf("selfupdate: transformed staging exceeds executable limit")
+		return "", 0, fmt.Errorf("selfupdate: transformed staging exceeds executable limit")
 	}
 	if filepath.Base(path) != filepath.Base(sess.Target().Path) && !sessOwns(sess, path) {
-		return "", fmt.Errorf("selfupdate: transformed staging is not owned by the session")
+		return "", 0, fmt.Errorf("selfupdate: transformed staging is not owned by the session")
 	}
 	sum, err := hashFile(path)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return sum, nil
+	return sum, info.Size(), nil
 }
 
 func sessOwns(sess InstallSession, path string) bool {

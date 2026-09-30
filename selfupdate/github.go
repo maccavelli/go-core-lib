@@ -281,7 +281,9 @@ func validateAssetStructure(a Asset) error {
 	if a.ID <= 0 || a.Name == "" {
 		return fmt.Errorf("selfupdate: asset metadata is incomplete")
 	}
-	if strings.ContainsAny(a.Name, `/\`) || strings.IndexFunc(a.Name, unicode.IsControl) >= 0 {
+	// "." and ".." contain no separator but are not names of files
+	// (0004-MADR R9).
+	if a.Name == "." || a.Name == ".." || strings.ContainsAny(a.Name, `/\`) || strings.IndexFunc(a.Name, unicode.IsControl) >= 0 {
 		return fmt.Errorf("selfupdate: asset name %q is not a basename", a.Name)
 	}
 	return nil

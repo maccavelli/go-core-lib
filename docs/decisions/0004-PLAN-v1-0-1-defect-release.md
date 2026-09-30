@@ -147,7 +147,8 @@ asks for it.
 3. `validateAssetStructure` refuses `.` and `..`.
 4. **Tests**, seen to fail on the unfixed code:
    * a transformer that grows the file changes `StagedArtifact.Size`;
-   * a verifier sees the manifest digest;
+   * ~~a verifier sees the manifest digest;~~ *(dropped, deviation D1: the
+     value cannot differ, so no test of it can fail)*
    * `.` and `..` are refused.
 
 ### Step 5: release tooling (R6, R7, R8)
@@ -354,3 +355,47 @@ there, `afterLockHook` and a no-op `withRetryBudget`, without the fixes.
   orders nothing: it gives a wrongly lingering reader time to block, so the
   old failure is observed rather than raced. The fixed code passes with or
   without it.
+
+### Step 4: coordinator (2026-09-30)
+
+**What changed.**
+
+* **G8, size.**
+  * `hashAndValidateStaging` returns the size as well.
+  * `apply` keeps `installedSize`: the advertised size, which the download
+    enforced, until a transform changes it.
+  * `StagedArtifact.Size` now carries that size.
+* **G8, digest.** `runVerifiers` takes the manifest entry's digest and
+  passes it as `ManifestSHA256`.
+* **R9.** `validateAssetStructure` refuses `.` and `..`.
+
+**Tests** (`coordinator_fix_test.go`). Each was run on a scratch copy of
+`33761dd`, unchanged:
+
+| Test | On the unfixed copy |
+| :--- | :--- |
+| `TestInstallRequestCarriesTransformedSize` | FAIL: `StagedArtifact.Size = 9, want the transformed length 16 (advertised 9)` |
+| `TestAssetStructureRefusesDotNames` | FAIL: `asset name "." accepted`, `asset name ".." accepted` |
+
+**Checks.**
+
+* `go test -race -count=1 ./...` passed.
+* `make pre-add-check` passed on the three files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+
+**Deviation D1 (2026-09-30): no test for the `ManifestSHA256` value.**
+
+* **Found.** Step 4.4 asked for a test that a verifier sees the manifest
+  digest, seen to fail on the unfixed code. No such test can fail:
+  * `verifyIntegrity` runs before any verifier and rejects the run unless
+    the staged digest and the manifest digest are byte-equal
+    (`equalDigest`, a constant-time exact compare);
+  * `parseSHA256SUMS` lowercases every manifest digest;
+  * so the old value (the staged digest) and the new one are always the
+    same string by the time a verifier sees it.
+* **Decision.** The change is kept, because it makes the value match the
+  field's documentation, and the unfalsifiable test is dropped. Step 4.4
+  is annotated. No file was added to the step.
+* **MADR.** No MADR amendment is needed. Its G8 *(clarified)* note already
+  describes the fix as "the value", and nothing it asserts changes.
