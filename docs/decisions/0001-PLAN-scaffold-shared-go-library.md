@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-29
 associated-madr: "0001-MADR-scaffold-shared-go-library.md"
 ---
@@ -340,4 +340,43 @@ Commit: `53994bb`.
 * **Scope added to Phase 2.** None in this repository beyond the fixed line.
   The four commits above are outside this repository.
 
-Commit: this Phase 2 commit.
+Commit: `3fce25c`.
+
+### Phase 3: documentation tree (2026-09-29)
+
+* `README.md` covers what the repository is, its status (no package, "no
+  packages" failures expected, no release), a link to `docs/README.md`, an
+  "I want to…" table and a License line linking `LICENSE`.
+* `docs/README.md` holds the record index (the 0001 MADR `accepted`, the
+  0001 PLAN `complete`) and an "I want to…" table of six reader tasks.
+* `docs/architecture.md` describes the tree and tooling at this commit. Its
+  "What is not here" list names the first package, `docs/reports/`,
+  `docs/guides/` and a release.
+* `markdownlint-cli2 README.md docs/README.md docs/architecture.md`:
+  `Summary: 0 issues in 0 files`, exit 0.
+* **Link resolver.** It was proven first on a scratch tree with two good
+  links and three planted bad ones: a missing file, a missing anchor, and a
+  pre-move `../docs/docs/…` path. It reported exactly the three
+  (`checked 5 relative links, 3 broken`, exit 1). Over `README.md`,
+  `docs/README.md`, `docs/architecture.md` and `AGENTS.md`:
+  `checked 16 relative links, 0 broken`, exit 0. That includes the MADR
+  section anchors and `#execution-record`.
+
+### Verification (2026-09-29)
+
+* **V1.** Holds. See Phase 1 and Phase 2 steps 2–5.
+* **V2.** Holds. `go.mod` is 3 lines. `go mod verify` exits 0 and
+  `go mod tidy -diff` exits 0. There is no `go.sum`. `gofmt -l .` is empty.
+* **V3.** Holds. See Phase 2 step 6.
+* **V4.** Holds. See Phase 2 step 7 (a)–(d).
+* **V5.** Holds. See Phase 3.
+* **V6.** Holds. `git grep --cached` over the staged tree for the local
+  account name, the short hostname, `/Users/` and `/home/<lowercase>` found
+  no match, excluding this PLAN's own prose that names the patterns. This
+  PLAN has no match for the account name or hostname.
+* **V7.** Holds. There is one commit per phase (`c08511c`, `53994bb`,
+  `3fce25c`, and this Phase 3 commit), each message written by the hook, and
+  `git status` is clean after each. Nothing is pushed. Under MADR §6 the
+  scaffold waits to be pushed with the `selfupdate` re-home.
+
+Commit: this Phase 3 commit.
