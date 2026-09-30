@@ -491,3 +491,102 @@ CI.**
 * **MADR.** Unaffected: its R7/R8 *(clarified)* note says only "CI installs
   `PyYAML==6.0.3` into a virtual environment from a hash-pinned
   requirements file".
+
+### Step 6: harness (2026-09-30)
+
+**What changed.**
+
+* **Fuzz targets** (`fuzz_test.go`): `FuzzParseSHA256SUMS`,
+  `FuzzGitHubReleaseJSON` (with the R9 invariant on, and `.` and `..`
+  seeds), `FuzzSanitize` and `FuzzVersionPolicy`.
+  * `FuzzParseSHA256SUMS` is seeded with all 23 `testdata/manifest-parity`
+    manifests plus eight hand seeds, one of them an uppercase digest.
+  * Every seed string is written with hex escapes or numeric code points,
+    so the file holds only ASCII.
+* **Branch tests** (`branch_coverage_test.go`):
+  * `openLockFile`: the create race, retried; a lock replaced between
+    `Lstat` and open; a lock that keeps changing; a non-regular lock.
+  * The managed commit's `checkDir`.
+  * Commit failures to remove or to sync.
+  * `rollbackReplacement` with no backup, a failed restore and a failed
+    sync.
+  * `copyFile` failing at chmod, sync and close.
+  * `readTruncated`.
+* **Test seams.**
+  * `lockOpenHook` (stages `before-lstat` and `after-lstat`) in
+    `lock.go`.
+  * `fileChmod`, `fileSync` and `fileClose` in `replace.go`. These three
+    are method-value seams the plan did not name, but covering
+    `copyFile`'s chmod, sync and close failures needs them.
+* **Seams through `setSeam`.** Six tests that swapped a seam by hand now
+  use `setSeam`: `confirmer_test.go` (three), `fs_test.go`,
+  `github_test.go`, `replace_windows_test.go` (two) and `target_test.go`.
+  `setSeam` carries the no-`t.Parallel` rule.
+* **The C7 test.**
+  * `TestTerminalConfirmerCancelKeepsLine` lost its 100 ms ordering pause.
+    With Step 3's confirmer, the read starts before `Confirm` waits, so
+    the cancel can land at any point.
+  * It also gained a check that no read is outstanding after the answered
+    `Confirm`.
+  * Its 200 ms pause after the late `y` stays, because it orders nothing:
+    it only gives a lingering reader time to misbehave.
+* **Lint fix.** `unparam` failed for Windows: every Windows caller passed
+  `0` for `openLockFile`'s `extraFlags`. The parameter became a per-OS
+  constant, `lockOpenFlags`: `unix.O_NOFOLLOW` on Unix and `0` on Windows.
+  The behaviour is unchanged.
+* **Already covered.** Two items the plan lists here were covered in
+  Step 2:
+  * `beginSession`'s "changed while locking", by
+    `TestBeginChecksDirectoryBeforeReceipt` (macOS);
+  * a rollback failure inside managed recovery, by
+    `TestManagedReportsKeptBackup`.
+
+**Proofs.** On a scratch copy of the working tree, each mutation broke the
+code one test guards, and was run against that test alone. All 17 were
+killed; the first failing line of each:
+
+| Mutation | Failure |
+| :--- | :--- |
+| no retry after the create race | `err = selfupdate: create lock: openat .demo.selfupdate.lock: file exists` |
+| no `SameFile` check on the lock | `err = <nil>, want one containing "lock changed while opening"` |
+| no regular-file check on the lock | `… open lock: … is a directory, want one containing "lock is not a regular file"` |
+| commit skips `checkDir` | `Applied=true err=selfupdate: remove backup: … no such file or directory; want an applied install whose commit was refused` |
+| backup removal error ignored | `err = <nil>, want one containing "remove backup"` |
+| commit sync error ignored | `err = <nil>, want one containing "injected commit sync failure"` |
+| rollback sync error ignored | `err = <nil>, want one containing "injected rollback sync failure"` |
+| `copyFile` chmod, sync and close errors ignored (three mutations) | `err = <nil>, want the injected chmod failure` (and sync, close) |
+| `copyFile` keeps a partial copy | `a failed copy left …/dst-chmod behind: <nil>` |
+| `readTruncated` one byte over | `over the limit: "01234", <nil>` |
+| digests not lowercased | `digest "ABAB…" is not lowercase 64-hex` |
+| R9 reverted | `dot asset name accepted: "."` |
+| `sanitizeText` lets ESC through | `text: control U+001B survived in "a\x1b[31mb?c d?"` |
+| strict version grammar skipped | `Validate accepted "v1.2.3+meta"` |
+| pending read never cleared | `a read is still outstanding after the answered Confirm` |
+
+After the `lockOpenFlags` refactor, the 17 mutations were run again, and
+none survived.
+
+**Checks.**
+
+* **Fuzzing.** Each target ran for 10 s on macOS with no crasher:
+  * `FuzzParseSHA256SUMS`, 289,812 execs;
+  * `FuzzGitHubReleaseJSON`, 254,750;
+  * `FuzzSanitize`, 77,172;
+  * `FuzzVersionPolicy`, 606,864.
+
+  No corpus was written under `testdata/`.
+* **Coverage.** `go tool cover -func` total, before this step and after:
+  85.5% → 86.6%. The round-2 review measured 85.2% on `v1.0.0`. Per
+  function, before → after:
+  * `readTruncated` 66.7 → 100;
+  * `rollbackReplacement` 80 → 100;
+  * `openLockFile` 65 → 84;
+  * `copyFile` 61.1 → 80;
+  * `commitReplacement` 71.4 → 85.7;
+  * `syncDirectory` 50 → 75.
+* **Pre-add.** `make pre-add-check` passed on the 12 files.
+* **Windows test host.**
+  * `go vet`, `go test -race`, all script tests and every named test
+    passed, including every fuzz seed.
+  * `TestManagedCommitRefusesMovedDirectory` logs that Windows refused
+    the directory swap, as the Step 2 tests do.

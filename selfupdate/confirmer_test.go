@@ -25,9 +25,7 @@ func TestTerminalConfirmerRequiresTTY(t *testing.T) {
 }
 
 func TestTerminalConfirmerYesNo(t *testing.T) {
-	orig := isTerminal
-	isTerminal = func(int) bool { return true }
-	t.Cleanup(func() { isTerminal = orig })
+	setSeam(t, &isTerminal, func(int) bool { return true })
 
 	t.Run("yes", func(t *testing.T) {
 		in, out := pipeFile(t, "yes\n")
@@ -55,9 +53,7 @@ func TestTerminalConfirmerYesNo(t *testing.T) {
 // TestTerminalConfirmerEOFDeclines: end of input before an answer is the
 // default "N", not an error (0003-MADR C6).
 func TestTerminalConfirmerEOFDeclines(t *testing.T) {
-	orig := isTerminal
-	isTerminal = func(int) bool { return true }
-	t.Cleanup(func() { isTerminal = orig })
+	setSeam(t, &isTerminal, func(int) bool { return true })
 	in, _ := pipeFile(t, "")
 	c := NewTerminalConfirmer(in, io.Discard)
 	ok, err := c.Confirm(context.Background(), Prompt{Product: "demo", Current: "v1.0.0", Target: "v1.1.0", Operation: OperationUpgrade})
@@ -69,9 +65,7 @@ func TestTerminalConfirmerEOFDeclines(t *testing.T) {
 // TestTerminalConfirmerCancelKeepsLine: a cancelled Confirm does not lose
 // the line typed afterwards; the next Confirm receives it (0003-MADR C7).
 func TestTerminalConfirmerCancelKeepsLine(t *testing.T) {
-	orig := isTerminal
-	isTerminal = func(int) bool { return true }
-	t.Cleanup(func() { isTerminal = orig })
+	setSeam(t, &isTerminal, func(int) bool { return true })
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -96,12 +90,14 @@ func TestTerminalConfirmerCancelKeepsLine(t *testing.T) {
 		_, err := c.Confirm(ctx2, p)
 		done <- err
 	}()
+	// Once the prompt is out, Confirm has started its read or is about to,
+	// before it waits: cancelling at any point from here leaves that read
+	// pending (0004-MADR R2), so no pause is needed to order the two.
 	select {
 	case <-prompted.ch:
 	case <-time.After(5 * time.Second):
 		t.Fatal("prompt never written")
 	}
-	time.Sleep(100 * time.Millisecond)
 	cancel2()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled err = %v", err)
@@ -118,6 +114,14 @@ func TestTerminalConfirmerCancelKeepsLine(t *testing.T) {
 	ok, err := c.Confirm(ctx3, p)
 	if err != nil || !ok {
 		t.Fatalf("ok=%v err=%v, want the line typed after cancellation", ok, err)
+	}
+	// The answered Confirm consumed the pending read: nothing is left
+	// reading the input (0004-MADR R2).
+	c.(*terminalConfirmer).mu.Lock()
+	pending := c.(*terminalConfirmer).pending
+	c.(*terminalConfirmer).mu.Unlock()
+	if pending != nil {
+		t.Fatal("a read is still outstanding after the answered Confirm")
 	}
 }
 

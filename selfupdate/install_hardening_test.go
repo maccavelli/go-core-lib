@@ -34,6 +34,10 @@ func standaloneSession(t *testing.T) (InstallSession, string) {
 	return sess, exe
 }
 
+// setSeam replaces a package-level seam for one test and restores it at
+// cleanup. Every test that swaps a seam goes through it. Seams are package
+// state, so no test in this package calls t.Parallel: two tests swapping
+// the same seam at once would see each other's values.
 func setSeam[T any](t *testing.T, seam *T, v T) {
 	t.Helper()
 	prev := *seam

@@ -83,9 +83,7 @@ func TestCanonicalizeRootRejectsRelative(t *testing.T) {
 func withTempHome(t *testing.T) (home, exe string) {
 	t.Helper()
 	home = t.TempDir()
-	prev := userHomeDir
-	userHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { userHomeDir = prev })
+	setSeam(t, &userHomeDir, func() (string, error) { return home, nil })
 	exe = filepath.Join(home, "demo")
 	if err := os.WriteFile(exe, []byte("old-bytes"), 0o755); err != nil {
 		t.Fatal(err)

@@ -47,8 +47,12 @@ func acquireLock(ctx context.Context, root *os.Root, base string, timeout time.D
 	}
 }
 
+// lockOpenFlags adds nothing on Windows: openLockFile's Lstat and
+// SameFile checks are the defence there.
+const lockOpenFlags = 0
+
 func tryAcquireLock(root *os.Root, name string) (lockHandle, error) {
-	f, err := openLockFile(root, name, 0)
+	f, err := openLockFile(root, name)
 	if err != nil {
 		return lockHandle{}, err
 	}

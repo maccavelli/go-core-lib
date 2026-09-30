@@ -9,11 +9,9 @@ import (
 
 func TestInjectedRenameFailure(t *testing.T) {
 	_, exe := withTempHome(t)
-	prev := replacePath
-	replacePath = func(ctx context.Context, oldpath, newpath string) error {
+	setSeam(t, &replacePath, func(ctx context.Context, oldpath, newpath string) error {
 		return errors.New("injected rename failure")
-	}
-	t.Cleanup(func() { replacePath = prev })
+	})
 
 	inst, err := NewStandaloneInstaller(InstallOptions{TargetPolicy: TargetPolicy{ExecutablePath: exe}})
 	if err != nil {

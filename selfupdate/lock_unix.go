@@ -47,8 +47,11 @@ func acquireLock(ctx context.Context, root *os.Root, base string, timeout time.D
 	}
 }
 
+// lockOpenFlags keeps a final-component symlink from being followed.
+const lockOpenFlags = unix.O_NOFOLLOW
+
 func tryAcquireLock(root *os.Root, name string) (lockHandle, error) {
-	f, err := openLockFile(root, name, unix.O_NOFOLLOW)
+	f, err := openLockFile(root, name)
 	if err != nil {
 		return lockHandle{}, err
 	}

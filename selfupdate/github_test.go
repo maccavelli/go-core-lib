@@ -117,15 +117,13 @@ func TestNewGitHubSource(t *testing.T) {
 }
 
 func TestGitHubTokenOrder(t *testing.T) {
-	orig := lookupEnv
-	t.Cleanup(func() { lookupEnv = orig })
 	opts := GitHubOptions{
 		Repository: Repository{Owner: "maccavelli", Name: "demo"},
 		Client:     &http.Client{Timeout: time.Second},
 		UserAgent:  "demo/v1.0.0",
 		Limits:     DefaultLimits(),
 	}
-	lookupEnv = func(k string) string {
+	setSeam(t, &lookupEnv, func(k string) string {
 		switch k {
 		case "GH_TOKEN":
 			return "gh-from-env"
@@ -134,7 +132,7 @@ func TestGitHubTokenOrder(t *testing.T) {
 		default:
 			return ""
 		}
-	}
+	})
 	src, err := NewGitHubSource(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -142,12 +140,12 @@ func TestGitHubTokenOrder(t *testing.T) {
 	if src.token != "gh-from-env" {
 		t.Fatalf("token = %q, want GH_TOKEN", src.token)
 	}
-	lookupEnv = func(k string) string {
+	setSeam(t, &lookupEnv, func(k string) string {
 		if k == "GITHUB_TOKEN" {
 			return "github-from-env"
 		}
 		return ""
-	}
+	})
 	src, err = NewGitHubSource(opts)
 	if err != nil {
 		t.Fatal(err)

@@ -10,6 +10,9 @@ import (
 )
 
 var (
+	fileChmod   = (*os.File).Chmod
+	fileSync    = (*os.File).Sync
+	fileClose   = (*os.File).Close
 	osChmod     = os.Chmod
 	osRemove    = os.Remove
 	osLink      = os.Link
@@ -53,13 +56,13 @@ func copyFile(src, dst string) (err error) {
 	}
 	// The backup is what a rollback restores: it keeps the executable's
 	// mode, not the creation default (0003-MADR B3).
-	if chmodErr := out.Chmod(srcInfo.Mode().Perm()); chmodErr != nil {
+	if chmodErr := fileChmod(out, srcInfo.Mode().Perm()); chmodErr != nil {
 		return joinRemove(joinClose(chmodErr, out), dst)
 	}
-	if syncErr := out.Sync(); syncErr != nil {
+	if syncErr := fileSync(out); syncErr != nil {
 		return joinRemove(joinClose(syncErr, out), dst)
 	}
-	if closeErr := out.Close(); closeErr != nil {
+	if closeErr := fileClose(out); closeErr != nil {
 		return joinRemove(closeErr, dst)
 	}
 	return nil
