@@ -367,3 +367,78 @@ Commit: `71d9e1d`.
 
   The clone was deleted afterwards. By contrast, Phase 1's host-only
   `make lint` passed the unfixed code with `0 issues.`
+
+Commit: `80820b8`.
+
+### Phase 4: the release tooling (2026-09-29)
+
+* **Extraction.** `git -C ../mcplib archive v1.6.0 <five scripts> <workflow> | tar -x`.
+  All five scripts are `-rwxr-xr-x`.
+* **Edits** (`phase4_edits.py`, scratch, with every target's count asserted
+  before replacement):
+  * **Workflow.** `.mcplib-release-tools` becomes `.core-lib-release-tools`
+    (5 occurrences before, 0 after). The `bridge-release` input, the
+    `BRIDGE:` env line and `--bridge "$BRIDGE"` are removed, and so is
+    `--repository` (D2). The two "MADR 0007" comments cite
+    `mcplib docs/0007-MADR-restore-repository-context-in-the-reusable-release-workflow.md`.
+  * **Verifier.** `--bridge` and `--repository` (D2) are removed from the
+    usage, the variables, the parser and the Python `argv`, along with the
+    compatibility set, `SHA256SUMS-0.16.0` and the alias comparison. The
+    strict `--tag` check is kept, as
+    `if tag and not tag_re.match(tag): fail(…)`. Diff against `v1.6.0`:
+    48 lines removed, 4 added.
+  * **Verifier test.** The four bridge cases are removed. Added: a
+    `run_usage` helper (asserts exit 2), `--bridge` and `--repository`
+    usage cases, and a strict/non-strict `--tag` pair (D2).
+  * **`refuse-existing-release.sh`, its test and
+    `check-workflow-gh-repo.sh`:** citation text only.
+* **`ci.yml`:** `verify self-update release fixtures` on Linux, and
+  `Verify the release guard and its workflow contract` on every OS, both
+  with `shell: bash` (D2).
+* **Checks:**
+  * `verify-selfupdate-release_test.sh` passes 9 of 9 cases.
+    `refuse-existing-release_test.sh`: `6 passed, 0 failed`.
+    `check-workflow-gh-repo.sh`:
+    `ok — every repository-scoped gh step sets GH_REPO`.
+  * `shellcheck scripts/*.sh`: exit 0. PyYAML loads `ci.yml` and the
+    reusable workflow.
+  * `grep -rn -i mcplib scripts .github selfupdate`, excluding record
+    filenames: one hit, the new test comment "bridge was not carried over
+    from mcplib". `grep -rn -i 'bridge\|0\.16\.0'`: only that comment and
+    the `--bridge` usage case. (A first sweep used `git grep`, which skips
+    untracked files. It was re-run with `grep`.)
+* **First-fail,** on scratch copies of `scripts/` and the workflow, with
+  one plant each (`plant_tooling.py`):
+
+  | Plant | Test | Result |
+  |---|---|---|
+  | a. file-set check disabled (`if False:`) | verifier test | exit 1, `not ok - undeclared extra file (expected failure)` |
+  | b. `GH_REPO` removed from "Create a draft release" | `check-workflow-gh-repo.sh` | exit 1, `gh steps missing GH_REPO:` naming both `gh release create` and `upload` |
+  | c. guard exits 0 when gh's error is unrecognised | refuse test | exit 1, `FAIL undiagnosed gh failure is refused: want exit 1, got 0`, `4 passed, 2 failed` |
+  | d. verifier accepts `--bridge` again | verifier test | exit 1, `not ok - --bridge is not an option (expected usage exit 2, got 0)` |
+  | e. strict-tag check disabled | verifier test | exit 1, `not ok - non-strict tag rejected (expected failure)` |
+
+  With no plant, all three pass. The scratch copies were deleted.
+
+#### Deviation D2 (2026-09-29): bridge-only leftovers, tag coverage, and the CI shell
+
+* **Found.**
+  1. The verifier's `--repository` argument had one reader, the bridge
+     guard (`v1.6.0` `verify-selfupdate-release.sh:136`). Removing the
+     bridge left it accepted and unused. MADR §3 named `--bridge` but not
+     `--repository`.
+  2. The only `v1.6.0` test cases that passed `--tag` were the bridge
+     cases. Removing them left the strict-tag check, which every release
+     still runs, with no test.
+  3. `mcplib`'s CI runs the shell-script steps with no `shell:`. On the
+     Windows leg that is PowerShell.
+* **Done.** All three are consequences of the owner's decision to drop the
+  bridge, or of running the moved steps here. None changes the workflow's
+  inputs beyond MADR §3.
+  1. `--repository` is removed from the verifier and the workflow, and
+     asserted to be a usage error.
+  2. A strict `--tag v1.2.3` accept case and a `--tag v1.2` reject case
+     are added. Plant e shows the reject case catches a disabled check.
+  3. Both script steps in `ci.yml` set `shell: bash`. Their first Windows
+     run is in Phase 6.
+* **Scope added to Phase 4.** None beyond the files already listed.

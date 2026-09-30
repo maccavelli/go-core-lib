@@ -32,3 +32,14 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           "$(go env GOPATH)/bin/govulncheck" ./...
+      # The reusable release workflow's own tests
+      # (docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md §6).
+      - name: verify self-update release fixtures
+        if: runner.os == 'Linux'
+        shell: bash
+        run: ./scripts/verify-selfupdate-release_test.sh
+      - name: Verify the release guard and its workflow contract
+        shell: bash
+        run: |
+          ./scripts/refuse-existing-release_test.sh
+          ./scripts/check-workflow-gh-repo.sh
