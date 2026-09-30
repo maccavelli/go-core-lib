@@ -117,6 +117,15 @@ func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, wrapRun(req, err)
 	}
+	// Only the selected binary and manifest are checked for state, size and
+	// digest syntax, each against its own limit, and before check mode can
+	// report anything (PLAN §4.6 step 4; 0003-MADR A1 and A5).
+	if err := validateAssetMetadata(sel.Binary, u.limits.Executable); err != nil {
+		return Result{}, wrapRun(req, err)
+	}
+	if err := validateAssetMetadata(sel.Manifest, u.limits.Manifest); err != nil {
+		return Result{}, wrapRun(req, err)
+	}
 	op, err := classifyOperation(u.versions, req, rel.Tag, fromLatest)
 	if err != nil {
 		return Result{}, wrapRun(req, err)

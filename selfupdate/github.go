@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -82,6 +83,9 @@ func validateGitHubName(kind, name string) error {
 	if strings.ContainsAny(name, `/\:?`) || strings.IndexFunc(name, unicode.IsControl) >= 0 {
 		return fmt.Errorf("selfupdate: github %s contains illegal characters", kind)
 	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("selfupdate: github %s must not be a dot segment", kind)
+	}
 	return nil
 }
 
@@ -142,6 +146,12 @@ func (s *GitHubSource) checkRedirect(req *http.Request, via []*http.Request) err
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("selfupdate: too many redirects")
 	}
+	// Any non-loopback hop must stay on HTTPS (mcplib 0005-PLAN §4.2;
+	// 0003-MADR A3). The URL is not echoed: a redirect target can carry
+	// signed query parameters.
+	if !strings.EqualFold(req.URL.Scheme, "https") && !isLoopbackHost(req.URL.Hostname()) {
+		return fmt.Errorf("selfupdate: refusing redirect to a non-https location")
+	}
 	if !sameOrigin(req.URL, s.apiBase) {
 		req.Header.Del("Authorization")
 	}
@@ -172,7 +182,14 @@ func (s *GitHubSource) ByTag(ctx context.Context, tag string) (Release, error) {
 	if tag == "" || strings.ContainsAny(tag, `/\:`) || strings.IndexFunc(tag, unicode.IsControl) >= 0 {
 		return Release{}, fmt.Errorf("selfupdate: invalid release tag %q", tag)
 	}
-	return s.getRelease(ctx, s.apiURL("repos", s.repo.Owner, s.repo.Name, "releases", "tags", tag))
+	rel, err := s.getRelease(ctx, s.apiURL("repos", s.repo.Owner, s.repo.Name, "releases", "tags", tag))
+	if err != nil {
+		return Release{}, err
+	}
+	if rel.Tag != tag {
+		return Release{}, fmt.Errorf("selfupdate: github returned release %q for tag %q: %w", rel.Tag, tag, ErrIntegrity)
+	}
+	return rel, nil
 }
 
 type githubReleaseJSON struct {
@@ -207,18 +224,25 @@ func (s *GitHubSource) getRelease(ctx context.Context, rawURL string) (rel Relea
 			err = cerr
 		}
 	}()
+	// Look at the status before the body: an error body is read only up to
+	// ErrorBody, truncated rather than refused, so an oversized 429 still
+	// maps to RateLimitError (0003-MADR A8).
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		errBody, rerr := readTruncated(resp.Body, s.limits.ErrorBody)
+		if rerr != nil {
+			return Release{}, rerr
+		}
+		return Release{}, s.mapStatus(resp, errBody)
+	}
 	body, err := readBounded(resp.Body, s.limits.ReleaseJSON)
 	if err != nil {
-		return Release{}, err
-	}
-	if err := s.mapStatus(resp, body); err != nil {
 		return Release{}, err
 	}
 	var raw githubReleaseJSON
 	if err := decodeJSON(body, &raw); err != nil {
 		return Release{}, err
 	}
-	rel, err = mapRelease(raw, s.limits.Executable)
+	rel, err = mapRelease(raw)
 	if err != nil {
 		return Release{}, err
 	}
@@ -228,7 +252,10 @@ func (s *GitHubSource) getRelease(ctx context.Context, rawURL string) (rel Relea
 	return rel, nil
 }
 
-func mapRelease(raw githubReleaseJSON, maxSize int64) (Release, error) {
+// mapRelease checks only the structure of every asset. State, size and digest
+// are validated for the selected binary and manifest alone, by the Updater,
+// so an unrelated extra asset cannot make a release unusable (0003-MADR A1).
+func mapRelease(raw githubReleaseJSON) (Release, error) {
 	rel := Release{
 		ID:         raw.ID,
 		Tag:        raw.TagName,
@@ -240,12 +267,24 @@ func mapRelease(raw githubReleaseJSON, maxSize int64) (Release, error) {
 	}
 	for _, a := range raw.Assets {
 		asset := Asset(a)
-		if err := validateAssetMetadata(asset, maxSize); err != nil {
+		if err := validateAssetStructure(asset); err != nil {
 			return Release{}, err
 		}
 		rel.Assets = append(rel.Assets, asset)
 	}
 	return rel, nil
+}
+
+// validateAssetStructure checks the identity every asset must have: an ID,
+// and a name that is a basename without control characters.
+func validateAssetStructure(a Asset) error {
+	if a.ID <= 0 || a.Name == "" {
+		return fmt.Errorf("selfupdate: asset metadata is incomplete")
+	}
+	if strings.ContainsAny(a.Name, `/\`) || strings.IndexFunc(a.Name, unicode.IsControl) >= 0 {
+		return fmt.Errorf("selfupdate: asset name %q is not a basename", a.Name)
+	}
+	return nil
 }
 
 func validateFetchedRelease(rel Release) error {
@@ -276,12 +315,12 @@ func assetBelongsToRelease(rel Release, asset Asset) error {
 	return fmt.Errorf("selfupdate: asset %d is not part of release %q", asset.ID, rel.Tag)
 }
 
+// validateAssetMetadata is the full check for an asset about to be used:
+// structure, uploaded state, a positive size within maxSize, and digest
+// syntax.
 func validateAssetMetadata(a Asset, maxSize int64) error {
-	if a.ID <= 0 || a.Name == "" {
-		return fmt.Errorf("selfupdate: asset metadata is incomplete")
-	}
-	if strings.ContainsAny(a.Name, `/\`) || strings.IndexFunc(a.Name, unicode.IsControl) >= 0 {
-		return fmt.Errorf("selfupdate: asset name %q is not a basename", a.Name)
+	if err := validateAssetStructure(a); err != nil {
+		return err
 	}
 	if a.State != "uploaded" {
 		return fmt.Errorf("selfupdate: asset %s is not uploaded", a.Name)
@@ -322,7 +361,7 @@ func (s *GitHubSource) OpenAsset(ctx context.Context, rel Release, asset Asset) 
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		body, readErr := readBounded(resp.Body, s.limits.ErrorBody)
+		body, readErr := readTruncated(resp.Body, s.limits.ErrorBody)
 		closeErr := resp.Body.Close()
 		if readErr != nil {
 			return nil, errors.Join(readErr, closeErr)
@@ -361,6 +400,10 @@ func (s *GitHubSource) mapStatus(resp *http.Response, body []byte) error {
 	return fmt.Errorf("selfupdate: github http %d: %s", resp.StatusCode, diag)
 }
 
+// maxRetryAfterSeconds is the largest Retry-After, in seconds, that fits in a
+// time.Duration.
+const maxRetryAfterSeconds = math.MaxInt64 / int64(time.Second)
+
 func rateLimitedForbidden(resp *http.Response) bool {
 	if resp.StatusCode != http.StatusForbidden {
 		return false
@@ -388,7 +431,9 @@ func parseRateLimit(resp *http.Response, now func() time.Time) error {
 	}
 	if v := strings.TrimSpace(resp.Header.Get("Retry-After")); v != "" {
 		if secs, perr := strconv.ParseInt(v, 10, 64); perr == nil {
-			if secs > 0 {
+			// Seconds beyond what a Duration holds would overflow into a
+			// negative value; treat them as malformed (0003-MADR A7).
+			if secs > 0 && secs <= maxRetryAfterSeconds {
 				err.RetryAfter = time.Duration(secs) * time.Second
 			}
 		} else if when, perr := http.ParseTime(v); perr == nil {

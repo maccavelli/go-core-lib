@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -31,10 +33,21 @@ func decodeJSON(data []byte, dest any) error {
 	if err := dec.Decode(dest); err != nil {
 		return fmt.Errorf("selfupdate: malformed github json: %w", err)
 	}
-	if dec.More() {
+	// Anything after the document, a lone closing delimiter included, is
+	// refused: dec.More() alone misses a trailing '}' or ']' (0003-MADR A6).
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("selfupdate: trailing github json")
 	}
 	return nil
+}
+
+// readTruncated reads at most limit bytes and discards the rest, for error
+// bodies whose content is only diagnostic (0003-MADR A8).
+func readTruncated(r io.Reader, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("selfupdate: body limit must be positive")
+	}
+	return io.ReadAll(&io.LimitedReader{R: r, N: limit})
 }
 
 func sanitizeDiagnostic(s string, limit int64) string {
@@ -44,7 +57,7 @@ func sanitizeDiagnostic(s string, limit int64) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		if r < 32 || r == 127 || (r >= 0x80 && r <= 0x9f) {
+		if r < 32 || r == 127 || (r >= 0x80 && r <= 0x9f) || isInvisibleControl(r) {
 			b.WriteByte('?')
 			continue
 		}
@@ -55,6 +68,13 @@ func sanitizeDiagnostic(s string, limit int64) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// isInvisibleControl reports Unicode format controls (category Cf, such as
+// bidi overrides U+202E and isolates U+2066) and the line and paragraph
+// separators, which reorder or break terminal text (0003-MADR A11).
+func isInvisibleControl(r rune) bool {
+	return unicode.Is(unicode.Cf, r) || r == ' ' || r == ' '
 }
 
 func copyLimited(r io.Reader, w io.Writer, advertised, limit int64) (written int64, digest string, err error) {

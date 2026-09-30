@@ -681,3 +681,79 @@ with a scratch-only shim declaring `errNotCommitted`.
   `TestRunCallOrderFailureBoundaries`, `TestOverlappingRun` and
   `TestNativeReplaceRunningCopy` all PASS; the three script tests 0;
   `overall=0`; `cleanup ok`.
+
+Commit: `f095505`.
+
+### Phase 2: network and integrity (2026-09-29)
+
+**Changes.**
+
+* **A1 with A5.**
+  * `mapRelease` now calls a new `validateAssetStructure` (ID, basename,
+    no control characters) for every asset.
+  * `validateAssetMetadata` builds on it for the full check.
+  * `execute` runs `validateAssetMetadata` on `sel.Binary` against
+    `Limits.Executable`, and on `sel.Manifest` against `Limits.Manifest`,
+    right after `Select`. `OpenAsset` still checks the asset it opens.
+* **A2.** `ByTag` rejects `rel.Tag != tag` with `ErrIntegrity`.
+* **A3.** `checkRedirect` refuses any hop that is not `https` unless the
+  host is loopback. The URL is not echoed.
+* **A6.** `decodeJSON` requires `dec.Token()` to return `io.EOF`.
+* **A7.** A `Retry-After` in seconds above `maxRetryAfterSeconds` is
+  ignored. The first draft, `int64(math.MaxInt64 / int64(time.Second))`,
+  failed the pre-add gate with `unnecessary conversion (unconvert)` on all
+  three targets. It was corrected and re-gated.
+* **A8.** `getRelease` checks the status before reading. Non-2xx bodies,
+  there and in `OpenAsset`, go through the new `readTruncated`, which is
+  capped at `ErrorBody` and tolerates truncation.
+* **A10.** `validateGitHubName` rejects `.` and `..`.
+* **A11.** The new `isInvisibleControl` (`unicode.Cf`, U+2028, U+2029) is
+  applied in `sanitizeDiagnostic` and `sanitizeText`.
+* **Tests.**
+  * `github_hardening_test.go`: `TestGitHubExtraAssetsDoNotPoisonRelease`,
+    `TestGitHubByTagRejectsMismatchedTag`,
+    `TestGitHubRedirectRequiresHTTPS`,
+    `TestDecodeJSONRejectsTrailingDelimiters`,
+    `TestRateLimitRetryAfterOverflow`,
+    `TestGitHubLargeErrorBodyKeepsRateLimit`,
+    `TestNewGitHubSourceRejectsDotNames`,
+    `TestSanitizeRemovesFormatControls`, and for A4
+    `TestGitHubForbiddenRemainingZeroIsRateLimit`,
+    `TestGitHubOpenAssetStatuses`, `TestGitHubOpenAssetValidatesAsset` and
+    `TestRateLimitErrorText`.
+  * `updater_contract_test.go`: `TestRunValidatesSelectedAssets`.
+  * Authoring slip: the sanitizer test's `\u` escapes were written into
+    the file as literal invisible runes, and `gofmt` refused them ("illegal
+    byte order mark"). A scratch script rewrote the 12 runes as Go escapes.
+    A scan found no literal control bytes in any Go or script file; `\x`
+    escapes had been preserved.
+
+**Fail-first** against a `git archive` of `f095505`.
+
+* **Failed, as required** (9): `TestGitHubExtraAssetsDoNotPoisonRelease`,
+  `TestGitHubByTagRejectsMismatchedTag`, `TestGitHubRedirectRequiresHTTPS`,
+  `TestDecodeJSONRejectsTrailingDelimiters`,
+  `TestRateLimitRetryAfterOverflow`,
+  `TestGitHubLargeErrorBodyKeepsRateLimit`,
+  `TestNewGitHubSourceRejectsDotNames`,
+  `TestSanitizeRemovesFormatControls`, `TestRunValidatesSelectedAssets`.
+* **The four A4 tests passed there** (they close gaps). Mutation proofs
+  for the five checks A4 named:
+
+  | Mutation | Test | Failure |
+  |---|---|---|
+  | `no-403-remaining` | `TestGitHubForbiddenRemainingZeroIsRateLimit` | `err = selfupdate: github http 403` |
+  | `no-state-check` | `TestGitHubOpenAssetValidatesAsset` | `open state: accepted` |
+  | `no-size-limit` | `TestGitHubOpenAssetValidatesAsset` | `oversize: accepted` |
+  | `no-openasset-status` | `TestGitHubOpenAssetStatuses` | `status 429: no error` |
+  | `no-belongs-check` | `TestGitHubOpenAssetValidatesAsset` | `foreign id: accepted` |
+
+**Gates.**
+
+* `make pre-add-check`: `49 file(s) clean`.
+* `go test -race -count=1 -cover ./...`: coverage **83.3 %**.
+* `go mod tidy -diff`: 0.
+* G-api: byte-identical to Phase 1's (26 doc-text lines against
+  `v1.6.0`; no signature line).
+* Windows gate: `go vet` 0, `go test -race` 0, the named Phase 2 tests
+  PASS, script tests 0, `overall=0`, `cleanup ok`.

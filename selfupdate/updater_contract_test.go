@@ -285,6 +285,36 @@ func TestRunRejectsTagMismatch(t *testing.T) {
 	}
 }
 
+// TestRunValidatesSelectedAssets: the selected binary and manifest are
+// validated by the Updater, each against its own limit, before check mode
+// reports (0003-MADR A1 and A5).
+func TestRunValidatesSelectedAssets(t *testing.T) {
+	cases := map[string]func(*contractEnv){
+		"binary not uploaded": func(e *contractEnv) { e.src.rel.Assets[0].State = "open" },
+		"binary zero size":    func(e *contractEnv) { e.src.rel.Assets[0].Size = 0 },
+		"binary bad digest":   func(e *contractEnv) { e.src.rel.Assets[0].Digest = "sha512:abc" },
+		"manifest over its own limit": func(e *contractEnv) {
+			e.lim.Manifest = 8
+		},
+		"binary over executable limit": func(e *contractEnv) {
+			e.lim.Executable = 4
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			env := newContractEnv(t)
+			mutate(env)
+			u := env.build(t)
+			req := applyReq()
+			req.CheckOnly = true
+			res, err := u.Run(context.Background(), req)
+			if err == nil || errors.Is(err, ErrUpdateAvailable) || res.Checked {
+				t.Fatalf("res=%+v err=%v", res, err)
+			}
+		})
+	}
+}
+
 // TestRunEscapesUntrustedTag: a control-character tag never reaches error
 // text raw (0003-MADR C4).
 func TestRunEscapesUntrustedTag(t *testing.T) {

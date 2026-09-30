@@ -67,7 +67,7 @@ func sanitizeText(s string) string {
 		switch {
 		case r == '\n' || r == '\r':
 			b.WriteByte(' ')
-		case r < 32 || r == 127 || (r >= 0x80 && r <= 0x9f):
+		case r < 32 || r == 127 || (r >= 0x80 && r <= 0x9f) || isInvisibleControl(r):
 			b.WriteByte('?')
 		case r == utf8.RuneError && size == 1:
 			b.WriteByte('?')
