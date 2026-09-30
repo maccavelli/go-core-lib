@@ -44,16 +44,16 @@ func TestNewExactAssetSelector(t *testing.T) {
 }
 
 func TestExactAssetNameWindowsExtension(t *testing.T) {
-	if got := exactAssetName("demo", Platform{OS: "linux", Arch: "amd64"}); got != "demo-linux-amd64" {
+	if got := ExactAssetName("demo", Platform{OS: "linux", Arch: "amd64"}); got != "demo-linux-amd64" {
 		t.Fatalf("linux = %q", got)
 	}
-	if got := exactAssetName("demo", Platform{OS: "windows", Arch: "amd64"}); got != "demo-windows-amd64.exe" {
+	if got := ExactAssetName("demo", Platform{OS: "windows", Arch: "amd64"}); got != "demo-windows-amd64.exe" {
 		t.Fatalf("windows amd64 = %q", got)
 	}
-	if got := exactAssetName("demo", Platform{OS: "windows", Arch: "arm64"}); got != "demo-windows-arm64.exe" {
+	if got := ExactAssetName("demo", Platform{OS: "windows", Arch: "arm64"}); got != "demo-windows-arm64.exe" {
 		t.Fatalf("windows arm64 = %q", got)
 	}
-	if got := exactAssetName("mcp-server-recall", Platform{OS: "darwin", Arch: "arm64"}); got != "mcp-server-recall-darwin-arm64" {
+	if got := ExactAssetName("mcp-server-recall", Platform{OS: "darwin", Arch: "arm64"}); got != "mcp-server-recall-darwin-arm64" {
 		t.Fatalf("hyphenated product = %q", got)
 	}
 }

@@ -324,7 +324,7 @@ func validateAssetMetadata(a Asset, maxSize int64) error {
 	if err := validateAssetStructure(a); err != nil {
 		return err
 	}
-	if a.State != "uploaded" {
+	if a.State != AssetStateUploaded {
 		return fmt.Errorf("selfupdate: asset %s is not uploaded", a.Name)
 	}
 	if a.Size <= 0 {

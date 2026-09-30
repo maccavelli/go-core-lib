@@ -34,7 +34,7 @@ func TestManifestParityFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			entries, perr := parseSHA256SUMS(data)
+			entries, perr := ParseSHA256SUMS(data)
 			if perr == nil {
 				_, e1 := checksumFor(entries, "demo-linux-amd64")
 				_, e2 := checksumFor(entries, "demo-windows-amd64.exe")

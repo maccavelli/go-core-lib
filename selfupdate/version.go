@@ -50,7 +50,9 @@ func validateProduct(product string) error {
 	return nil
 }
 
-func validateRequest(req Request) error {
+// validateRequest checks a request's shape, and validates its versions with
+// the configured policy rather than a hardcoded strict one (0004-MADR G2).
+func validateRequest(req Request, versions VersionPolicy) error {
 	if err := validateProduct(req.Product); err != nil {
 		return err
 	}
@@ -69,12 +71,12 @@ func validateRequest(req Request) error {
 		return fmt.Errorf("selfupdate: --check and --force are contradictory")
 	}
 	if req.CurrentBuild == ReleaseBuild {
-		if err := NewStrictVersionPolicy().Validate(req.CurrentVersion); err != nil {
+		if err := versions.Validate(req.CurrentVersion); err != nil {
 			return err
 		}
 	}
 	if req.TargetVersion != "" {
-		if err := NewStrictVersionPolicy().Validate(req.TargetVersion); err != nil {
+		if err := versions.Validate(req.TargetVersion); err != nil {
 			return err
 		}
 	}
@@ -93,7 +95,7 @@ func classifyOperation(versions VersionPolicy, req Request, selected string, fro
 			return OperationReplaceLocal, nil
 		}
 		if !req.Force {
-			return OperationNone, fmt.Errorf("%w to install %s", errForceRequired, selected)
+			return OperationNone, fmt.Errorf("%w to install %s", ErrForceRequired, selected)
 		}
 		return OperationReplaceLocal, nil
 	}
@@ -112,7 +114,7 @@ func classifyOperation(versions VersionPolicy, req Request, selected string, fro
 	default:
 		if fromLatest {
 			return OperationNone, fmt.Errorf("selfupdate: latest release %s is older than running %s: %w",
-				selected, req.CurrentVersion, errLatestOlder)
+				selected, req.CurrentVersion, ErrLatestOlder)
 		}
 		return OperationRollback, nil
 	}

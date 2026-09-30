@@ -137,7 +137,7 @@ func fixtureRelease(t *testing.T, product string) (Release, map[int64][]byte, []
 	bin := []byte("hello-bin")
 	sum := sha256.Sum256(bin)
 	hexsum := hex.EncodeToString(sum[:])
-	name := exactAssetName(product, plat)
+	name := ExactAssetName(product, plat)
 	manifest := []byte(hexsum + "  " + name + "\n")
 	rel := Release{
 		ID: 1, Tag: "v1.1.0", URL: "https://example.invalid/v1.1.0", Immutable: true,

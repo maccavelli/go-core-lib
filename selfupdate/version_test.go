@@ -135,7 +135,7 @@ func TestClassifyOperation(t *testing.T) {
 			req:        Request{CurrentBuild: ReleaseBuild, CurrentVersion: "v1.1.0"},
 			selected:   "v1.0.0",
 			fromLatest: true,
-			wantErr:    errLatestOlder,
+			wantErr:    ErrLatestOlder,
 		},
 		{
 			name:     "local check",
@@ -147,7 +147,7 @@ func TestClassifyOperation(t *testing.T) {
 			name:     "local apply without force",
 			req:      Request{CurrentBuild: LocalBuild, CurrentVersion: "dev"},
 			selected: "v1.0.0",
-			wantErr:  errForceRequired,
+			wantErr:  ErrForceRequired,
 		},
 		{
 			name:     "local force apply",
@@ -188,28 +188,28 @@ func TestValidateRequest(t *testing.T) {
 		CurrentBuild:   ReleaseBuild,
 	}
 	t.Run("ok", func(t *testing.T) {
-		if err := validateRequest(valid); err != nil {
+		if err := validateRequest(valid, NewStrictVersionPolicy()); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("unknown build kind", func(t *testing.T) {
 		req := valid
 		req.CurrentBuild = BuildKind(9)
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted unknown build kind")
 		}
 	})
 	t.Run("zero build kind", func(t *testing.T) {
 		req := valid
 		req.CurrentBuild = BuildUnknown
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted unknown zero build kind")
 		}
 	})
 	t.Run("partial platform", func(t *testing.T) {
 		req := valid
 		req.Platform.OS = "linux"
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted partial platform")
 		}
 	})
@@ -217,7 +217,7 @@ func TestValidateRequest(t *testing.T) {
 		req := valid
 		req.CheckOnly = true
 		req.Yes = true
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted --check --yes")
 		}
 	})
@@ -225,21 +225,21 @@ func TestValidateRequest(t *testing.T) {
 		req := valid
 		req.CheckOnly = true
 		req.Force = true
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted --check --force")
 		}
 	})
 	t.Run("invalid product", func(t *testing.T) {
 		req := valid
 		req.Product = "../evil"
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted invalid product")
 		}
 	})
 	t.Run("release current not a tag", func(t *testing.T) {
 		req := valid
 		req.CurrentVersion = "dev"
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted local identity as release")
 		}
 	})
@@ -247,14 +247,14 @@ func TestValidateRequest(t *testing.T) {
 		req := valid
 		req.CurrentBuild = LocalBuild
 		req.CurrentVersion = "definitely not semver"
-		if err := validateRequest(req); err != nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("invalid exact target", func(t *testing.T) {
 		req := valid
 		req.TargetVersion = "v1.2.3-rc.1"
-		if err := validateRequest(req); err == nil {
+		if err := validateRequest(req, NewStrictVersionPolicy()); err == nil {
 			t.Fatal("accepted prerelease target")
 		}
 	})

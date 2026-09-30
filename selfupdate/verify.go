@@ -19,7 +19,7 @@ func verifyIntegrity(v Verification) error {
 }
 
 func verifyManifest(data []byte, manifestName, staged string) error {
-	entries, err := parseSHA256SUMS(data)
+	entries, err := ParseSHA256SUMS(data)
 	if err != nil {
 		return err
 	}

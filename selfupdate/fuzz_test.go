@@ -50,7 +50,7 @@ func FuzzParseSHA256SUMS(f *testing.F) {
 		f.Add(data)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		entries, err := parseSHA256SUMS(data)
+		entries, err := ParseSHA256SUMS(data)
 		if err != nil {
 			return
 		}
@@ -78,7 +78,7 @@ func FuzzParseSHA256SUMS(f *testing.F) {
 		for _, n := range names {
 			fmt.Fprintf(&b, "%s  %s\n", entries[n], n)
 		}
-		again, err := parseSHA256SUMS(b.Bytes())
+		again, err := ParseSHA256SUMS(b.Bytes())
 		if err != nil {
 			t.Fatalf("round trip rejected: %v\n%q", err, b.String())
 		}

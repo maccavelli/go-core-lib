@@ -14,9 +14,13 @@ import (
 
 var isTerminal = term.IsTerminal
 
+// terminalConfirmer is the line confirmer behind both NewTerminalConfirmer
+// and NewPromptConfirmer; allow decides, at each Confirm, whether it may
+// prompt at all.
 type terminalConfirmer struct {
-	in  *os.File
-	out io.Writer
+	in    io.Reader
+	out   io.Writer
+	allow func() error
 
 	// pending is the one outstanding read, if any. A Confirm starts a read
 	// only when none is outstanding, and the read ends after one line, so
@@ -37,7 +41,44 @@ type lineResult struct {
 // answer is a decline. A cancelled Confirm returns the context error; a line
 // typed afterwards answers the next Confirm on the same confirmer.
 func NewTerminalConfirmer(in *os.File, out io.Writer) Confirmer {
-	return &terminalConfirmer{in: in, out: out}
+	c := &terminalConfirmer{out: out}
+	// A nil *os.File must not become a non-nil io.Reader.
+	if in != nil {
+		c.in = in
+	}
+	c.allow = func() error {
+		if in == nil {
+			return fmt.Errorf("selfupdate: confirmation input is nil: %w", ErrConfirmationRequired)
+		}
+		if !isTerminal(int(in.Fd())) {
+			return fmt.Errorf("selfupdate: pass --yes to apply without a TTY: %w", ErrConfirmationRequired)
+		}
+		return nil
+	}
+	return c
+}
+
+// NewPromptConfirmer prompts on out and reads one answer line from in,
+// for any reader: a pipe, a test buffer, or a UI's input. interactive
+// false, or a nil in, returns ErrConfirmationRequired without prompting.
+// It reads byte by byte and leaves no read outstanding once answered, and
+// a line typed after a cancelled Confirm answers the next one, exactly as
+// NewTerminalConfirmer does (0004-MADR G6).
+func NewPromptConfirmer(in io.Reader, out io.Writer, interactive bool) Confirmer {
+	c := &terminalConfirmer{out: out}
+	if !isNil(in) {
+		c.in = in
+	}
+	c.allow = func() error {
+		if c.in == nil {
+			return fmt.Errorf("selfupdate: confirmation input is nil: %w", ErrConfirmationRequired)
+		}
+		if !interactive {
+			return fmt.Errorf("selfupdate: pass --yes to apply without prompting: %w", ErrConfirmationRequired)
+		}
+		return nil
+	}
+	return c
 }
 
 // maxAnswer bounds the answer text kept from one line; the rest of an
@@ -91,11 +132,8 @@ func (c *terminalConfirmer) Confirm(ctx context.Context, p Prompt) (bool, error)
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if c.in == nil {
-		return false, fmt.Errorf("selfupdate: confirmation input is nil: %w", ErrConfirmationRequired)
-	}
-	if !isTerminal(int(c.in.Fd())) {
-		return false, fmt.Errorf("selfupdate: pass --yes to apply without a TTY: %w", ErrConfirmationRequired)
+	if err := c.allow(); err != nil {
+		return false, err
 	}
 	if c.out == nil {
 		return false, fmt.Errorf("selfupdate: confirmation output is nil")

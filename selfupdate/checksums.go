@@ -39,7 +39,11 @@ func isHex(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
-func parseSHA256SUMS(data []byte) (map[string]string, error) {
+// ParseSHA256SUMS parses a SHA256SUMS manifest exactly as the Updater does,
+// and as the release workflow's verifier does: one lowercase-normalised
+// digest per validated basename. The returned map belongs to the caller
+// (0004-MADR G1).
+func ParseSHA256SUMS(data []byte) (map[string]string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 1024), maxChecksumLine)
 	entries := make(map[string]string)

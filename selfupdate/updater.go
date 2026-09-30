@@ -80,7 +80,7 @@ func (u *Updater) Run(ctx context.Context, req Request) (Result, error) {
 }
 
 func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
-	if err := validateRequest(req); err != nil {
+	if err := validateRequest(req, u.versions); err != nil {
 		if validateProduct(req.Product) != nil {
 			// An invalid product name is not safe to put in the prefix.
 			return Result{}, err
@@ -219,7 +219,7 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	}
 	// Parse the manifest and find the one required entry before any staging
 	// or binary download (PLAN §4.6 step 9).
-	entries, err := parseSHA256SUMS(manifestBuf.Bytes())
+	entries, err := ParseSHA256SUMS(manifestBuf.Bytes())
 	if err != nil {
 		return resultOut, wrapRun(req, err)
 	}

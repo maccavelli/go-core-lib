@@ -7,6 +7,11 @@ import (
 
 const manifestAssetName = "SHA256SUMS"
 
+// AssetStateUploaded is the asset state a selected binary and manifest must
+// report; any ReleaseSource that is not GitHub reports it for a complete
+// upload (0004-MADR G1).
+const AssetStateUploaded = "uploaded"
+
 var platformFieldRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_]*$`)
 
 type exactAssetSelector struct {
@@ -47,7 +52,11 @@ func validatePlatformFields(p Platform) error {
 	return nil
 }
 
-func exactAssetName(product string, platform Platform) string {
+// ExactAssetName returns the canonical raw-binary asset name,
+// <product>-<os>-<arch>, with ".exe" for Windows: the name
+// NewExactAssetSelector selects. It validates nothing; the selector does
+// (0004-MADR G1).
+func ExactAssetName(product string, platform Platform) string {
 	name := product + "-" + platform.OS + "-" + platform.Arch
 	if platform.OS == goosWindows {
 		name += ".exe"
@@ -67,7 +76,7 @@ func (s *exactAssetSelector) Select(rel Release, product string, platform Platfo
 		return Selection{}, fmt.Errorf("selfupdate: %s/%s is not in the product platform matrix: %w",
 			platform.OS, platform.Arch, ErrUnsupportedPlatform)
 	}
-	want := exactAssetName(product, platform)
+	want := ExactAssetName(product, platform)
 	var (
 		binary    Asset
 		manifest  Asset

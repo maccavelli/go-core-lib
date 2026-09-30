@@ -1247,3 +1247,64 @@ type RecordedRequest struct {
 * This PLAN was set to `in-progress`, and the index updated.
 * [0004-PLAN-v1-0-1-defect-release.md](0004-PLAN-v1-0-1-defect-release.md)
   gained a release note for the `v1.0.1` tag.
+
+### Step 2: foundations (2026-09-30)
+
+**What changed.**
+
+* **Sentinels.** `ErrForceRequired` and `ErrLatestOlder` are exported, with
+  byte-identical texts.
+* **Version policy.** `validateRequest(req, versions)` validates with
+  `Config.Versions` (G2).
+* **Asset helpers.** `AssetStateUploaded` is added, and `github.go` uses
+  it.
+* **Adapters.** The new `adapters.go` has the four function adapters,
+  `DiscardReporter`, `MultiReporter` and `NonInteractiveConfirmer`.
+* **Confirmers.** `NewPromptConfirmer` shares the terminal confirmer's
+  type through an `allow` check.
+  * A typed-nil `*os.File` passed as `in` is treated as nil.
+  * `NewTerminalConfirmer`'s texts and its per-`Confirm` TTY check are
+    unchanged.
+* **`ParseSHA256SUMS` and `ExactAssetName` are the implementations
+  themselves.** The PLAN had them wrapping the unexported functions, but
+  revive's `confusing-naming` refuses two package functions whose names
+  differ only in case.
+  * The unexported names were removed, and every internal use renamed:
+    16 for the parser, 6 for the asset name.
+  * `TestParseSHA256SUMSExported` therefore checks each parity fixture's
+    own `expect` verdict, rather than comparing the function with itself.
+* **Existing tests.** They changed mechanically, with no assertion changed
+  (rule 3):
+  * `version_test.go`: the two sentinels renamed, and 10 `validateRequest`
+    calls given `NewStrictVersionPolicy()`;
+  * `checksums_test.go`, `manifest_parity_test.go`, `assets_test.go`,
+    `updater_test.go` and `fuzz_test.go`: the two renames.
+
+**Tests** (`foundations_test.go`): `TestExportedSentinels`,
+`TestValidateRequestUsesConfiguredPolicy`, `TestParseSHA256SUMSExported`,
+`TestExactAssetName`, `TestMultiReporter`, `TestFuncAdapters`,
+`TestNonInteractiveConfirmer` and `TestPromptConfirmer`, which includes
+the typed-nil `*os.File` case and the host-input property.
+
+**Mutation proofs.** Six mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| strict policy restored | `configured policy accepts the tag, yet: … "v1.2.3-rc.1" is not a strict stable tag` |
+| `MultiReporter` returns on the first error | `order = [a]` |
+| `MultiReporter` keeps nil entries | a nil-pointer panic |
+| `NewPromptConfirmer` ignores `interactive` | `interactive=false: <nil>` |
+| `ParseSHA256SUMS` ignores a bad line | `byte-order-mark: accepted=true (<nil>), expect "reject"` |
+| `ErrLatestOlder` no longer wrapped | `latest older than running: … older` |
+
+* **The runner now rejects mutations that do not compile.** Two first
+  drafts failed only at the build stage: one used an unimported `errors`,
+  and one targeted text the rename had removed. Such a mutation now
+  reports `NO-BUILD` and counts as a failed proof. Both were rewritten.
+
+**Checks.**
+
+* `make pre-add-check` passed on the 16 files, after lint fixes:
+  `errors.Is` in `TestFuncAdapters`, and the rename above.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.

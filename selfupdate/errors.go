@@ -30,11 +30,12 @@ var (
 	ErrMutableRelease = errors.New("selfupdate: release is not immutable")
 	// ErrRateLimited is the sentinel unwrapped by RateLimitError.
 	ErrRateLimited = errors.New("selfupdate: rate limited")
-)
-
-var (
-	errForceRequired = errors.New("selfupdate: replacing a local build requires --force")
-	errLatestOlder   = errors.New("selfupdate: latest release is older than the running version")
+	// ErrForceRequired is returned when applying over a local build without
+	// Request.Force (0004-MADR G4).
+	ErrForceRequired = errors.New("selfupdate: replacing a local build requires --force")
+	// ErrLatestOlder is returned when the latest stable release is older
+	// than the running release build (0004-MADR G4).
+	ErrLatestOlder = errors.New("selfupdate: latest release is older than the running version")
 )
 
 // RateLimitError retains GitHub rate-limit guidance. Missing or malformed
