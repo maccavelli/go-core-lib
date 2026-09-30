@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-30
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
@@ -628,3 +628,25 @@ requires CI to be green on all three operating systems after the push the
 owner asks for, including the first run of the new venv step (deviation
 D2), and that has not happened yet. It becomes `complete` when that run is
 green. `v1.0.1` is not tagged: that needs the owner's explicit ask.
+
+### CI after the push (2026-09-30)
+
+The owner pushed the seven commits (`33761dd`..`e2da354`). CI run
+`36767651723` on `e2da354` concluded `success`:
+
+| Job | Result |
+| :--- | :--- |
+| `validate (ubuntu-24.04)` | success |
+| `validate (windows-2025)` | success |
+| `validate (macos-15)` | success |
+
+* **"Verify the workflow contract".** It ran on Linux and was skipped on
+  Windows and macOS, as deviation D2 intends. Its log shows
+  `Successfully installed PyYAML-6.0.3` from the hash-pinned requirements,
+  `check-workflows: ok (all)`, `check-workflows: ok (expressions)` and
+  `24 passed, 0 failed`.
+* **"Verify the release guard".** It passed on all three operating
+  systems.
+
+Every acceptance criterion is now met, and this PLAN is `complete`.
+`v1.0.1` is still untagged, pending the owner's ask.
