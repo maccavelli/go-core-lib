@@ -133,9 +133,13 @@ type Result struct {
 	ServiceInstalled bool
 	// ServiceWasRunning reports whether that definition's process was active.
 	ServiceWasRunning bool
-	// PendingBackup is the path of the Windows running-image backup when the
-	// active image kept the backup open after commit. It is validated and
-	// removed before the next download.
+	// PendingBackup is a backup of the previous binary left beside the
+	// target. With Applied true, it is the Windows running-image backup the
+	// active image kept open after commit; it is validated and removed
+	// before the next download. With Applied false, on any OS, the new
+	// binary is live and restoring the previous one failed; the backup is
+	// the only copy of the previous binary, and the caller must restore or
+	// remove it.
 	PendingBackup string
 }
 

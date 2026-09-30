@@ -52,7 +52,10 @@ func replaceTarget(ctx context.Context, target Target, staging string) (applyRes
 	}
 	if err := syncDirFn(target.Dir); err != nil && !isUnsupportedSync(err) {
 		syncErr := fmt.Errorf("selfupdate: sync directory: %w", err)
-		if rerr := replacePath(ctx, backup, target.Path); rerr != nil {
+		// The restore is recovery: the caller's cancellation must not
+		// abandon it with the new binary live. moveFileReplace still bounds
+		// it by the retry budget (0004-MADR R4).
+		if rerr := replacePath(context.WithoutCancel(ctx), backup, target.Path); rerr != nil {
 			// The new binary is live and the backup is kept: report both
 			// (0003-MADR B1).
 			return applyResult{backup: backup, oldDigest: oldDigest, renamed: true},
@@ -63,11 +66,21 @@ func replaceTarget(ctx context.Context, target Target, staging string) (applyRes
 	return applyResult{backup: backup, oldDigest: oldDigest, renamed: true}, nil
 }
 
+// retryBudget is the bound on retrying a busy replacement: the session's
+// lock timeout when one was set, otherwise DefaultLockTimeout.
+func retryBudget(ctx context.Context) time.Duration {
+	if d, ok := ctx.Value(retryBudgetKey{}).(time.Duration); ok && d > 0 {
+		return d
+	}
+	return DefaultLockTimeout
+}
+
 // moveFileExFn is windows.MoveFileEx, replaceable in tests.
 var moveFileExFn = windows.MoveFileEx
 
-// moveFileReplace retries a busy replacement until DefaultLockTimeout or the
-// caller's context ends, whichever comes first (0003-MADR B10, B11).
+// moveFileReplace retries a busy replacement until the retry budget (the
+// session's lock timeout) or the caller's context ends, whichever comes
+// first (0003-MADR B10, B11; 0004-MADR R4).
 func moveFileReplace(ctx context.Context, from, to string) error {
 	fromW, err := windows.UTF16PtrFromString(from)
 	if err != nil {
@@ -77,7 +90,7 @@ func moveFileReplace(ctx context.Context, from, to string) error {
 	if err != nil {
 		return err
 	}
-	deadline := time.Now().Add(DefaultLockTimeout)
+	deadline := time.Now().Add(retryBudget(ctx))
 	var last error
 	for {
 		last = moveFileExFn(fromW, toW, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
@@ -85,8 +98,11 @@ func moveFileReplace(ctx context.Context, from, to string) error {
 			return nil
 		}
 		// A running image transiently refuses replacement with access
-		// denied as well as a sharing violation (0003-MADR B11).
-		if !isBusyRunningImage(last) || time.Now().After(deadline) {
+		// denied as well as a sharing violation (0003-MADR B11), so the
+		// code alone cannot tell busy from denied. A read-only destination
+		// is the one denial that can be told apart: it never clears by
+		// waiting (0004-MADR R4).
+		if !isBusyRunningImage(last) || time.Now().After(deadline) || isReadOnlyDenial(last, toW) {
 			return last
 		}
 		timer := time.NewTimer(10 * time.Millisecond)
@@ -105,6 +121,16 @@ func isSharingViolation(err error) bool {
 
 func isBusyRunningImage(err error) bool {
 	return isSharingViolation(err) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
+}
+
+// isReadOnlyDenial reports an access-denied refusal whose destination
+// carries FILE_ATTRIBUTE_READONLY.
+func isReadOnlyDenial(err error, to *uint16) bool {
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return false
+	}
+	attrs, aerr := windows.GetFileAttributes(to)
+	return aerr == nil && attrs&windows.FILE_ATTRIBUTE_READONLY != 0
 }
 
 func commitReplacement(target Target, result applyResult) (pending string, err error) {

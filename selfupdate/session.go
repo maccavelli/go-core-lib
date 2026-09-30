@@ -19,8 +19,12 @@ type installSession struct {
 	closed   bool
 	mu       sync.Mutex
 	closeErr error
-	// dirInfo identifies the locked target directory (0003-MADR B10).
+	// dirInfo identifies the locked target directory (0003-MADR B10). It
+	// comes from the root handle, so its identity does not depend on what
+	// the path names later (0004-MADR R3).
 	dirInfo os.FileInfo
+	// lockTimeout also bounds the Windows busy-image retry (0004-MADR R4).
+	lockTimeout time.Duration
 }
 
 func (s *installSession) Target() Target {
@@ -72,7 +76,12 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 		return InstallResult{Target: s.target.Path, Backup: applied.backup}, err
 	}
 	if err := s.checkDir(); err != nil {
-		return InstallResult{Target: s.target.Path, Backup: applied.backup, Applied: true}, err
+		// The rename went into the locked directory, wherever it is now:
+		// undo it there, through the handle (0004-MADR R3).
+		if rerr := s.rollbackInRoot(applied); rerr != nil {
+			return InstallResult{Target: s.target.Path, Backup: applied.backup, Applied: true}, errors.Join(err, rerr)
+		}
+		return InstallResult{Target: s.target.Path}, err
 	}
 	pending, err := commitReplacement(s.target, applied)
 	if err != nil {
@@ -122,7 +131,7 @@ func (s *installSession) replaceLocked(ctx context.Context, path string) (applyR
 	if !info.Mode().IsRegular() {
 		return applyResult{}, fmt.Errorf("selfupdate: staging is not a regular file")
 	}
-	applied, err := replaceTarget(ctx, s.target, path)
+	applied, err := replaceTarget(withRetryBudget(ctx, s.lockTimeout), s.target, path)
 	if applied.renamed {
 		delete(s.staging, path)
 	}
@@ -155,7 +164,19 @@ func (s *installSession) commit(applied applyResult) (string, error) {
 func (s *installSession) rollback(ctx context.Context, applied applyResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return rollbackReplacement(ctx, s.target, applied)
+	return rollbackReplacement(withRetryBudget(ctx, s.lockTimeout), s.target, applied)
+}
+
+// rollbackInRoot restores the backup over the target inside the locked
+// directory through its handle. The caller holds s.mu.
+func (s *installSession) rollbackInRoot(applied applyResult) error {
+	if applied.backup == "" {
+		return fmt.Errorf("selfupdate: no backup to restore")
+	}
+	if err := s.root.Rename(filepath.Base(applied.backup), s.target.Base); err != nil {
+		return fmt.Errorf("selfupdate: restore backup: %w", err)
+	}
+	return syncRoot(s.root)
 }
 
 func (s *installSession) Close() error {
@@ -185,6 +206,10 @@ func (s *installSession) Close() error {
 	return s.closeErr
 }
 
+// afterLockHook runs, when set, right after beginSession takes the lock.
+// Tests use it to change the directory at that moment.
+var afterLockHook func()
+
 func beginSession(ctx context.Context, policy TargetPolicy, original Target, timeout time.Duration) (*installSession, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -201,28 +226,33 @@ func beginSession(ctx context.Context, policy TargetPolicy, original Target, tim
 		}
 		return nil, fmt.Errorf("selfupdate: acquire lock: %w", err)
 	}
+	if afterLockHook != nil {
+		afterLockHook()
+	}
+	// The directory opened as root must be the one at the path before
+	// anything is read or removed in it, receipt included (0004-MADR R5).
+	// The handle's identity is what later steps re-check (0004-MADR R3).
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("selfupdate: stat target directory: %w", err), lock.release(), root.Close())
+	}
+	pathInfo, err := os.Stat(original.Dir)
+	if err != nil || !os.SameFile(rootInfo, pathInfo) {
+		return nil, errors.Join(fmt.Errorf("selfupdate: target directory changed while locking: %w", ErrConcurrentUpdate), lock.release(), root.Close())
+	}
 	if err := processCleanupReceipt(original, root); err != nil {
 		return nil, errors.Join(err, lock.release(), root.Close())
 	}
 	if err := revalidateTarget(original, policy); err != nil {
 		return nil, errors.Join(err, lock.release(), root.Close())
 	}
-	// The directory opened as root must be the one at the path, and that
-	// path identity is what later steps re-check.
-	rootInfo, err := root.Stat(".")
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("selfupdate: stat target directory: %w", err), lock.release(), root.Close())
-	}
-	dirInfo, err := os.Stat(original.Dir)
-	if err != nil || !os.SameFile(rootInfo, dirInfo) {
-		return nil, errors.Join(fmt.Errorf("selfupdate: target directory changed while locking: %w", ErrConcurrentUpdate), lock.release(), root.Close())
-	}
 	return &installSession{
-		target:  original,
-		policy:  policy,
-		root:    root,
-		lock:    lock,
-		staging: make(map[string]struct{}),
-		dirInfo: dirInfo,
+		target:      original,
+		policy:      policy,
+		root:        root,
+		lock:        lock,
+		staging:     make(map[string]struct{}),
+		dirInfo:     rootInfo,
+		lockTimeout: timeout,
 	}, nil
 }

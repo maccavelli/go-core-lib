@@ -1,10 +1,12 @@
 package selfupdate
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
 	"syscall"
+	"time"
 )
 
 var (
@@ -79,23 +81,32 @@ func syncDirectory(dir string) error {
 	if err != nil {
 		return err
 	}
+	return errors.Join(syncRoot(root), root.Close())
+}
+
+// syncRoot flushes the directory root is anchored to, whatever path now
+// names it.
+func syncRoot(root *os.Root) error {
 	f, err := root.Open(".")
-	cerr := root.Close()
 	if err != nil {
 		if isUnsupportedSync(err) {
-			return cerr
+			return nil
 		}
-		return errors.Join(err, cerr)
+		return err
 	}
-	syncErr := f.Sync()
-	syncErr = joinClose(syncErr, f)
-	if cerr != nil {
-		return errors.Join(syncErr, cerr)
-	}
+	syncErr := joinClose(f.Sync(), f)
 	if syncErr == nil || isUnsupportedSync(syncErr) {
 		return nil
 	}
 	return syncErr
+}
+
+// retryBudgetKey carries the session's lock timeout to the Windows
+// busy-image retry, which sits below the replacePath seam (0004-MADR R4).
+type retryBudgetKey struct{}
+
+func withRetryBudget(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, retryBudgetKey{}, d)
 }
 
 func isUnsupportedSync(err error) bool {

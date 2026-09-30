@@ -87,17 +87,17 @@ func (s *managedSession) Install(ctx context.Context, req InstallRequest) (Insta
 		// applied carries a backup when the new binary is live and the
 		// restore inside replaceTarget failed; recovery retries it
 		// (0003-MADR B1).
-		return InstallResult{}, s.recover(ctx, product, applied, ReconcileResult{}, stopped, err)
+		return s.recover(ctx, product, applied, ReconcileResult{}, stopped, err)
 	}
 	receipt, recErr := s.rec.Reconcile(ctx, product, s.inner.target.Path)
 	if recErr != nil {
-		return InstallResult{}, s.recover(ctx, product, applied, receipt, true, recErr)
+		return s.recover(ctx, product, applied, receipt, true, recErr)
 	}
 	if err := s.life.Start(ctx, product); err != nil {
-		return InstallResult{}, s.recover(ctx, product, applied, receipt, true, err)
+		return s.recover(ctx, product, applied, receipt, true, err)
 	}
 	if err := s.life.WaitHealthy(ctx, product); err != nil {
-		return InstallResult{}, s.recover(ctx, product, applied, receipt, true, err)
+		return s.recover(ctx, product, applied, receipt, true, err)
 	}
 	pending, err := s.inner.commit(applied)
 	result := InstallResult{
@@ -120,7 +120,10 @@ func (s *managedSession) Install(ctx context.Context, req InstallRequest) (Insta
 // (0003-MADR B2).
 const recoveryTimeout = 2 * time.Minute
 
-func (s *managedSession) recover(parent context.Context, product string, applied applyResult, receipt ReconcileResult, restart bool, origin error) error {
+// recover undoes a failed managed install. Its result names the backup
+// when the rollback failed and the backup still exists, so the caller
+// learns where the previous binary is (0004-MADR R1).
+func (s *managedSession) recover(parent context.Context, product string, applied applyResult, receipt ReconcileResult, restart bool, origin error) (InstallResult, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), recoveryTimeout)
 	defer cancel()
 	var recov error
@@ -129,9 +132,13 @@ func (s *managedSession) recover(parent context.Context, product string, applied
 			recov = errors.Join(recov, err)
 		}
 	}
+	result := InstallResult{}
 	if applied.backup != "" {
 		if err := s.inner.rollback(ctx, applied); err != nil {
 			recov = errors.Join(recov, err)
+			if _, serr := os.Lstat(applied.backup); serr == nil {
+				result = InstallResult{Target: s.inner.target.Path, Backup: applied.backup}
+			}
 		}
 	}
 	if restart {
@@ -141,5 +148,5 @@ func (s *managedSession) recover(parent context.Context, product string, applied
 			recov = errors.Join(recov, err)
 		}
 	}
-	return fmt.Errorf("selfupdate: managed install failed: %w", errors.Join(ErrManagedInstall, origin, recov))
+	return result, fmt.Errorf("selfupdate: managed install failed: %w", errors.Join(ErrManagedInstall, origin, recov))
 }

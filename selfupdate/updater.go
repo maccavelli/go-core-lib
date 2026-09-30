@@ -297,6 +297,15 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 		if instErr == nil {
 			instErr = errNotCommitted
 		}
+		if installed.Backup != "" {
+			// The replacement is live and restoring the previous binary
+			// failed: the backup is the only copy of it, so the caller
+			// must learn where it is (0004-MADR R1).
+			resultOut.PendingBackup = installed.Backup
+			instErr = errors.Join(instErr, fmt.Errorf(
+				"selfupdate: the previous binary was kept at %s because restoring it failed; restore or remove it",
+				sanitizeText(retainedPath(target, installed.Backup))))
+		}
 		return resultOut, wrapRun(req, instErr)
 	}
 	resultOut.Applied = true
@@ -306,20 +315,24 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	closeErr = closeSession()
 	detail := "release asset integrity verified"
 	if resultOut.PendingBackup != "" {
-		// The standalone installer reports an absolute path; a custom
-		// Installer may report a name relative to the target directory
-		// (0003-PLAN deviation D2).
-		retained := resultOut.PendingBackup
-		if !filepath.IsAbs(retained) {
-			retained = filepath.Join(target.Dir, retained)
-		}
-		detail = "pending backup " + sanitizeText(retained) + " will be validated and removed before the next download"
+		detail = "pending backup " + sanitizeText(retainedPath(target, resultOut.PendingBackup)) +
+			" will be validated and removed before the next download"
 	}
 	repErr := u.report(ctx, Event{
 		Kind: EventComplete, Product: req.Product, Current: req.CurrentVersion,
 		Target: rel.Tag, Asset: sel.Binary.Name, Detail: detail,
 	})
 	return resultOut, wrapRun(req, errors.Join(instErr, closeErr, repErr))
+}
+
+// retainedPath makes an installer-reported backup path absolute. The
+// standalone installer reports an absolute path; a custom Installer may
+// report a name relative to the target directory (0003-PLAN deviation D2).
+func retainedPath(target Target, p string) string {
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(target.Dir, p)
 }
 
 func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, ghDigest string) error {

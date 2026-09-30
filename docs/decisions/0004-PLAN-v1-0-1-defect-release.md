@@ -255,3 +255,69 @@ asks for it.
 * The MADR was marked `accepted`. Its Phase 0 section gained five
   *(clarified)* notes: R2, R3, R4, R7/R8 and G8.
 * This PLAN was written and indexed.
+
+### Step 2: install path (2026-09-30)
+
+**What changed.**
+
+* **R1.**
+  * `Updater.apply` moves an unapplied result's `Backup` into
+    `Result.PendingBackup`, and joins an error naming the path.
+  * `managedSession.recover` now returns an `InstallResult` carrying the
+    backup when the rollback failed and the file still exists.
+  * The `Result.PendingBackup` doc covers both meanings.
+  * The absolute-path logic moved into `retainedPath`.
+* **R3.**
+  * `dirInfo` comes from `root.Stat(".")`.
+  * `Install` undoes the rename through the new `rollbackInRoot`
+    (`root.Rename`, then `syncRoot`) when `checkDir` fails after the
+    rename.
+  * `syncDirectory` now delegates to `syncRoot`.
+* **R4.**
+  * The session keeps its lock timeout. `replaceLocked` and `rollback`
+    pass it through `withRetryBudget`; `retryBudget` reads it on Windows.
+  * `moveFileReplace` stops at once through `isReadOnlyDenial`.
+  * Both `replaceTarget` restores run on `context.WithoutCancel`.
+* **R5.**
+  * `beginSession` checks root-versus-path identity before
+    `processCleanupReceipt`.
+  * On Windows the backup is hashed through `root.Open`, with an
+    `os.SameFile` check (`rootFileSHA256`).
+* **Notes, within R5's scope.**
+  * `cleanup_other.go` had the same flaw: it found the receipt through the
+    root and removed it by path. It now uses `root.Remove`.
+  * The R5 test needs a moment to swap the directory, so `beginSession`
+    gained the test seam `afterLockHook`, which is nil in production.
+
+**Tests** (`recovery_test.go`, `replace_windows_budget_test.go`). Each was
+run on a scratch copy of `33761dd`. Only the two test seams were added
+there, `afterLockHook` and a no-op `withRetryBudget`, without the fixes.
+
+| Test | On the unfixed copy |
+| :--- | :--- |
+| `TestRunReportsKeptBackup` | FAIL (macOS, Windows): `PendingBackup is empty; the kept backup was not reported (err=… sync directory: injected directory sync failure` |
+| `TestManagedReportsKeptBackup` | FAIL (macOS, Windows): `Backup is empty after a failed rollback` |
+| `TestInstallRollsBackWhenDirectoryMovesAfterRename` | FAIL (macOS): `Applied=true err=… target directory changed during the update: … concurrent update; want an unapplied concurrent-update failure` |
+| `TestReplaceRestoreSurvivesCancellation` | FAIL (macOS, Windows): `the restore ran on a cancelled context: context canceled` |
+| `TestBeginChecksDirectoryBeforeReceipt` | FAIL (macOS): `the receipt in the swapped-in directory was touched: lstat …: no such file or directory` |
+| `TestMoveFileReplaceReadOnlyFailsFast` | FAIL (Windows): `calls = 475 after 5.0000633s; a read-only destination must not be retried` |
+| `TestMoveFileReplaceHonoursRetryBudget` | FAIL (Windows): `retried for 5.0040745s with a 50ms budget` |
+
+* **Fixing the R5 test itself.** The first version of the R5 test passed
+  on the unfixed copy: the unfixed code acts only when the locked
+  directory also holds a receipt. The test now plants one there, and it
+  fails as shown above. On Windows, its first run failed on the fixed
+  tree too: with no swap, Begin rightly rejected the placeholder receipt
+  as malformed. When no swap happens, the test now removes its
+  placeholder.
+* **R3 and R5 on Windows.** Windows refuses to rename a directory while the
+  session holds handles inside it: "The process cannot access the file
+  because it is being used by another process". Both tests therefore
+  assert and log that refusal there. The swap they guard against cannot
+  happen on that OS.
+* **Checks.**
+  * macOS: `make pre-add-check` passed on the 11 files (after two lint
+    fixes: `retryBudget` moved to the only file that uses it, and one test
+    stub was rewritten for `nilerr`).
+  * Windows test host: `go vet ./...` and `go test -race -count=1 ./...`
+    passed, and the script tests passed.

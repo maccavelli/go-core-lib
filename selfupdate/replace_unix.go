@@ -46,7 +46,9 @@ func replaceTarget(ctx context.Context, target Target, staging string) (applyRes
 	}
 	if err := syncDirFn(target.Dir); err != nil {
 		syncErr := fmt.Errorf("selfupdate: sync directory: %w", err)
-		if rerr := replacePath(ctx, backup, target.Path); rerr != nil {
+		// The restore is recovery: the caller's cancellation must not
+		// abandon it with the new binary live (0004-MADR R4).
+		if rerr := replacePath(context.WithoutCancel(ctx), backup, target.Path); rerr != nil {
 			// The new binary is live and the backup is kept: report both, so
 			// neither the failed restore nor the backup is lost (0003-MADR B1).
 			return applyResult{backup: backup, renamed: true},

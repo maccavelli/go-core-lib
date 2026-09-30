@@ -10,7 +10,9 @@ func processCleanupReceipt(target Target, root *os.Root) error {
 	name := cleanupReceiptName(target.Base)
 	_, err := root.Lstat(name)
 	if err == nil {
-		return os.Remove(cleanupReceiptPath(target))
+		// Remove through the root that was checked, not the path
+		// (0004-MADR R5).
+		return root.Remove(name)
 	}
 	if os.IsNotExist(err) {
 		return nil

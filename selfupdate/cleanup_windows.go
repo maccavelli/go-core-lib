@@ -36,6 +36,30 @@ func fileSHA256(path string) (digest string, err error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// rootFileSHA256 hashes name inside root, refusing a file other than the one
+// want describes.
+func rootFileSHA256(root *os.Root, name string, want os.FileInfo) (digest string, err error) {
+	f, err := root.Open(name)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		err = joinClose(err, f)
+	}()
+	got, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(want, got) {
+		return "", fmt.Errorf("selfupdate: pending backup changed while it was checked: %w", ErrConcurrentUpdate)
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func processCleanupReceipt(target Target, root *os.Root) error {
 	name := cleanupReceiptName(target.Base)
 	info, err := root.Lstat(name)
@@ -82,7 +106,9 @@ func processCleanupReceipt(target Target, root *os.Root) error {
 	if !binfo.Mode().IsRegular() || isReparsePoint(backupPath) {
 		return fmt.Errorf("selfupdate: pending backup is not a regular file")
 	}
-	got, err := fileSHA256(backupPath)
+	// Hash through the root, the same directory the removal below goes
+	// through, and only the file that was just checked (0004-MADR R5).
+	got, err := rootFileSHA256(root, rec.Backup, binfo)
 	if err != nil {
 		return err
 	}
