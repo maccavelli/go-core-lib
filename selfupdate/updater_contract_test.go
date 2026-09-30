@@ -77,6 +77,11 @@ func (s *logSession) Install(context.Context, InstallRequest) (InstallResult, er
 	return InstallResult{Applied: s.inst.applied, PendingBackup: s.inst.pending}, s.inst.installErr
 }
 
+// Owns implements StagingOwner for the staging files CreateStaging makes.
+func (s *logSession) Owns(path string) bool {
+	return filepath.Dir(path) == s.inst.dir && strings.HasPrefix(filepath.Base(path), ".demo.staging-")
+}
+
 func (s *logSession) Close() error {
 	*s.inst.log = append(*s.inst.log, "Close")
 	return s.inst.closeErr

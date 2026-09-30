@@ -372,6 +372,37 @@ type InstallSession interface {
 	Close() error
 }
 
+// StagingOwner reports whether a session created a staging path. The
+// coordinator asks it before hashing a transformed staging file; a session
+// that does not implement it owns nothing (0004-MADR G7).
+type StagingOwner interface {
+	Owns(path string) bool
+}
+
+// AppliedReplacement is a replacement that Apply made live and that
+// Commit or Rollback has not yet finished.
+type AppliedReplacement struct {
+	// Target is the replaced executable path.
+	Target string
+	// Backup is the previous binary's path, or "" when no backup exists.
+	Backup string
+	// State is private to the session that made the replacement; it is
+	// returned to that session's Commit or Rollback unchanged.
+	State any
+}
+
+// TwoPhaseSession is an InstallSession that a ManagedInstaller can drive:
+// Apply makes the replacement live with a backup, and Commit or Rollback
+// finishes it once the service has been reconciled, restarted and checked
+// (0004-MADR G7).
+type TwoPhaseSession interface {
+	InstallSession
+	StagingOwner
+	Apply(context.Context, InstallRequest) (AppliedReplacement, error)
+	Commit(context.Context, AppliedReplacement) (InstallResult, error)
+	Rollback(context.Context, AppliedReplacement) error
+}
+
 // Lifecycle is the consumer-owned service control seam.
 type Lifecycle interface {
 	Installed(context.Context, string) (bool, error)

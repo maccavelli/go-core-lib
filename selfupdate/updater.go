@@ -512,19 +512,11 @@ func hashAndValidateStaging(sess InstallSession, path string, limit int64) (stri
 	return sum, info.Size(), nil
 }
 
+// sessOwns fails closed: a session that is not a StagingOwner owns no
+// staging path (0004-MADR G7).
 func sessOwns(sess InstallSession, path string) bool {
-	inner, ok := sess.(*installSession)
-	if !ok {
-		if m, ok := sess.(*managedSession); ok {
-			inner = m.inner
-		}
-	}
-	if inner == nil {
-		return true
-	}
-	inner.mu.Lock()
-	defer inner.mu.Unlock()
-	return inner.owns(path)
+	o, ok := sess.(StagingOwner)
+	return ok && o.Owns(path)
 }
 
 func hashFile(path string) (digest string, err error) {

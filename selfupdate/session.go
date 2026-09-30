@@ -77,9 +77,30 @@ func (s *installSession) CreateStaging(ctx context.Context) (*os.File, string, e
 	return f, name, nil
 }
 
-func (s *installSession) owns(path string) bool {
+// ownsLocked reports a staging path this session created. The caller
+// holds s.mu.
+func (s *installSession) ownsLocked(path string) bool {
 	_, ok := s.staging[path]
 	return ok
+}
+
+// Owns implements StagingOwner.
+func (s *installSession) Owns(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ownsLocked(path)
+}
+
+// errForeignReplacement rejects an AppliedReplacement whose State this
+// session did not produce.
+var errForeignReplacement = errors.New("selfupdate: replacement was not applied by this session")
+
+func appliedState(a AppliedReplacement) (applyResult, error) {
+	applied, ok := a.State.(applyResult)
+	if !ok {
+		return applyResult{}, errForeignReplacement
+	}
+	return applied, nil
 }
 
 func (s *installSession) Install(ctx context.Context, req InstallRequest) (InstallResult, error) {
@@ -125,23 +146,22 @@ func (s *installSession) Install(ctx context.Context, req InstallRequest) (Insta
 	}, nil
 }
 
-func (s *installSession) apply(ctx context.Context, req InstallRequest) (applyResult, error) {
+// Apply implements TwoPhaseSession: it replaces the target, keeps the
+// backup, and runs the post-install probe. A failed Apply returns a
+// Backup only when the previous binary still needs restoring.
+func (s *installSession) Apply(ctx context.Context, req InstallRequest) (AppliedReplacement, error) {
 	if err := ctx.Err(); err != nil {
-		return applyResult{}, err
+		return AppliedReplacement{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	applied, err := s.replaceLocked(ctx, req.Artifact.Path)
-	if err != nil {
-		return applied, err
-	}
-	if err := s.probeInstalled(ctx, req, applied); err != nil {
-		if errors.Is(err, errProbeRolledBack) {
-			return applyResult{}, err
+	if err == nil {
+		if err = s.probeInstalled(ctx, req, applied); errors.Is(err, errProbeRolledBack) {
+			applied = applyResult{}
 		}
-		return applied, err
 	}
-	return applied, nil
+	return AppliedReplacement{Target: s.target.Path, Backup: applied.backup, State: applied}, err
 }
 
 // probeInstalled runs the post-install probe on the replaced target. On
@@ -172,7 +192,7 @@ func (s *installSession) replaceLocked(ctx context.Context, path string) (applyR
 	if s.closed {
 		return applyResult{}, fmt.Errorf("selfupdate: session is closed")
 	}
-	if !s.owns(path) {
+	if !s.ownsLocked(path) {
 		return applyResult{}, fmt.Errorf("selfupdate: artifact is not owned by this session")
 	}
 	// The directory first: once it has been swapped, every path below it
@@ -208,16 +228,36 @@ func (s *installSession) checkDir() error {
 	return nil
 }
 
-func (s *installSession) commit(applied applyResult) (string, error) {
+// Commit implements TwoPhaseSession: it removes the backup of a
+// replacement this session applied.
+func (s *installSession) Commit(_ context.Context, a AppliedReplacement) (InstallResult, error) {
+	applied, err := appliedState(a)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.checkDir(); err != nil {
-		return "", err
+	// The replacement is live either way: a refused commit leaves the new
+	// binary and its backup in place.
+	pending := ""
+	if err = s.checkDir(); err == nil {
+		pending, err = commitReplacement(s.target, applied)
 	}
-	return commitReplacement(s.target, applied)
+	return InstallResult{
+		Target:        s.target.Path,
+		Backup:        applied.backup,
+		Applied:       true,
+		PendingBackup: pending,
+	}, err
 }
 
-func (s *installSession) rollback(ctx context.Context, applied applyResult) error {
+// Rollback implements TwoPhaseSession: it restores the backup of a
+// replacement this session applied.
+func (s *installSession) Rollback(ctx context.Context, a AppliedReplacement) error {
+	applied, err := appliedState(a)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return rollbackReplacement(withRetryBudget(ctx, s.lockTimeout), s.target, applied)

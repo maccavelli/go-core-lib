@@ -1750,3 +1750,89 @@ On the Windows test host, `stagingSuffix` returning `""` was killed only by
   `go test -race -count=1 ./...` on the Step 8 tree before D2 and D3. Those
   two change only comments; the `windows` lint target runs in
   `make pre-add-check`.
+
+### Step 9: first-class custom installers (2026-09-30)
+
+**What changed.**
+
+* **`types.go`** adds `StagingOwner`, `AppliedReplacement` and
+  `TwoPhaseSession`, after `InstallSession`.
+* **`session.go`.** `installSession` implements both interfaces.
+  * The exported methods are the implementations. The unexported `apply`,
+    `commit` and `rollback` are gone, and `owns` became `ownsLocked`,
+    because `revive`'s `confusing-naming` refuses two methods that differ
+    only in case.
+  * `Apply` returns `AppliedReplacement{Target, Backup, State: applyResult}`.
+    When the post-install probe rolled back, `Backup` is empty.
+  * `Commit` and `Rollback` fail with
+    `selfupdate: replacement was not applied by this session` when `State`
+    is not an `applyResult`.
+  * A commit refused by the directory check still reports `Applied: true`
+    with its `Backup`, as the old `commit` path did: the replacement is
+    live.
+* **`updater.go`.** `sessOwns` is `ok && o.Owns(path)` on `StagingOwner`,
+  and false for any other session.
+* **`managed.go`.** `ManagedInstaller.inner` is an `Installer`.
+  * `NewManagedInstaller` keeps its nil check and calls
+    `NewManagedInstallerFor`, which refuses a nil or typed-nil installer.
+  * `Begin` refuses a session that is not a `TwoPhaseSession`, closing it.
+  * `managedSession` drives `Apply`, `Commit` and `Rollback`, delegates
+    `Owns`, and adds `ServiceInstalled` and `ServiceWasRunning` to
+    `Commit`'s result.
+  * Recovery rolls back when `AppliedReplacement.Backup` is set. When that
+    rollback fails, it reports the backup if `os.Lstat` still finds it
+    (Phase 0 R1).
+* **`updater_contract_test.go`.** `logSession` gains `Owns`, for the files
+  its `CreateStaging` makes. `captureSession` embeds `*logSession`, so it
+  gets `Owns` with no edit. This is the only change to existing tests.
+
+**Tests** (`twophase_test.go`):
+
+* `TestManagedDrivesCustomTwoPhaseSession`: one log records the session,
+  lifecycle and reconciler calls, and must read `Stop`, `Apply`,
+  `Reconcile`, `Start`, `WaitHealthy`, `Commit`. `Commit` gets the
+  session's own `State`.
+* `TestManagedRollsBackCustomSession`: a health failure gives `Restore`,
+  `Rollback`, `Start`, `WaitHealthy` after the forward calls, with the
+  session's `State`, and `RolledBack: true`.
+* `TestManagedRejectsSingleStepSession`: the refusal message, and the
+  session closed exactly once.
+* `TestSessOwnsFailsClosed`: a plain session owns nothing; a
+  `StagingOwner` is asked; the standalone session owns its staging and not
+  the target.
+* `TestCommitRejectsForeignState`: a nil and a foreign `State`, for both
+  `Commit` and `Rollback`, with the target unchanged.
+
+Three tests beyond the PLAN's list:
+
+* `TestTransformRequiresStagingOwner`: the behaviour change end to end. A
+  custom session without `Owns` plus a `Transformer` stops with
+  `transformed staging is not owned by the session`, before `Install`.
+* `TestNewManagedInstallerForRejectsNil`.
+* `TestStandaloneApplyCommit`: the standalone two-phase path keeps the
+  backup until `Commit`, then removes it.
+
+**Mutation proofs.** The PLAN's three plus six more; none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `sessOwns` returns true for an unknown session | `a session that is not a StagingOwner owns a path` |
+| `Begin` accepts a plain `InstallSession` | `Begin = {…}, <nil>; want the two-phase refusal` |
+| the refused session is not closed | `the refused session was closed 0 times, want 1` |
+| `Commit` skips the `State` assertion | `Commit(nil) = <nil>, want "selfupdate: replacement was not applied by this session"` |
+| `Rollback` skips the `State` assertion | `Rollback(nil) = selfupdate: no backup to restore, want …` |
+| the managed `Commit` drops the session's `State` | `Commit got State <nil>, want the value Apply returned` |
+| recovery does not roll back the custom session | `calls = [Stop Apply Reconcile Start WaitHealthy Restore Start WaitHealthy], want […Restore Rollback Start WaitHealthy]` |
+| a refused commit reports not applied | `TestManagedCommitRefusesMovedDirectory`: `Applied=false …; want an applied install whose commit was refused` |
+| `NewManagedInstallerFor` accepts a typed nil | `typed nil installer accepted` |
+
+The "refused commit" mutation reproduces a regression that the first draft
+of `Commit` actually had: the existing `TestManagedCommitRefusesMovedDirectory`
+caught it before the tests above were written.
+
+**Checks.**
+
+* `make pre-add-check` passed on the six files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+* No deviation: the API is the PLAN's, and nothing the MADR states changed.

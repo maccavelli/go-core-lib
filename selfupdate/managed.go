@@ -11,7 +11,7 @@ import (
 // ManagedInstaller composes standalone replacement with consumer lifecycle
 // and definition reconciliation.
 type ManagedInstaller struct {
-	inner *StandaloneInstaller
+	inner Installer
 	life  Lifecycle
 	rec   Reconciler
 }
@@ -20,6 +20,16 @@ type ManagedInstaller struct {
 func NewManagedInstaller(inner *StandaloneInstaller, life Lifecycle, rec Reconciler) (*ManagedInstaller, error) {
 	if inner == nil {
 		return nil, fmt.Errorf("selfupdate: managed installer requires a standalone installer")
+	}
+	return NewManagedInstallerFor(inner, life, rec)
+}
+
+// NewManagedInstallerFor wraps any Installer whose sessions implement
+// TwoPhaseSession; Begin refuses a session that does not. life and rec are
+// required (0004-MADR G7).
+func NewManagedInstallerFor(inner Installer, life Lifecycle, rec Reconciler) (*ManagedInstaller, error) {
+	if isNil(inner) {
+		return nil, fmt.Errorf("selfupdate: managed installer requires an installer")
 	}
 	if life == nil {
 		return nil, fmt.Errorf("selfupdate: managed installer requires a lifecycle")
@@ -41,15 +51,15 @@ func (m *ManagedInstaller) Begin(ctx context.Context, target Target) (InstallSes
 	if err != nil {
 		return nil, err
 	}
-	sess, ok := inner.(*installSession)
+	sess, ok := inner.(TwoPhaseSession)
 	if !ok {
-		return nil, joinClose(fmt.Errorf("selfupdate: unexpected standalone session type"), inner)
+		return nil, joinClose(fmt.Errorf("selfupdate: managed installer requires a two-phase session"), inner)
 	}
 	return &managedSession{inner: sess, life: m.life, rec: m.rec}, nil
 }
 
 type managedSession struct {
-	inner *installSession
+	inner TwoPhaseSession
 	life  Lifecycle
 	rec   Reconciler
 }
@@ -61,6 +71,9 @@ func (s *managedSession) CreateStaging(ctx context.Context) (*os.File, string, e
 }
 
 func (s *managedSession) Close() error { return s.inner.Close() }
+
+// Owns implements StagingOwner.
+func (s *managedSession) Owns(path string) bool { return s.inner.Owns(path) }
 
 func (s *managedSession) Install(ctx context.Context, req InstallRequest) (InstallResult, error) {
 	product := req.Product
@@ -82,14 +95,14 @@ func (s *managedSession) Install(ctx context.Context, req InstallRequest) (Insta
 		}
 		stopped = true
 	}
-	applied, err := s.inner.apply(ctx, req)
+	applied, err := s.inner.Apply(ctx, req)
 	if err != nil {
 		// applied carries a backup when the new binary is live and the
 		// restore inside replaceTarget failed; recovery retries it
 		// (0003-MADR B1).
 		return s.recover(ctx, product, applied, ReconcileResult{}, stopped, err)
 	}
-	receipt, recErr := s.rec.Reconcile(ctx, product, s.inner.target.Path)
+	receipt, recErr := s.rec.Reconcile(ctx, product, s.inner.Target().Path)
 	if recErr != nil {
 		return s.recover(ctx, product, applied, receipt, true, recErr)
 	}
@@ -99,19 +112,10 @@ func (s *managedSession) Install(ctx context.Context, req InstallRequest) (Insta
 	if err := s.life.WaitHealthy(ctx, product); err != nil {
 		return s.recover(ctx, product, applied, receipt, true, err)
 	}
-	pending, err := s.inner.commit(applied)
-	result := InstallResult{
-		Target:            s.inner.target.Path,
-		Backup:            applied.backup,
-		Applied:           true,
-		ServiceInstalled:  true,
-		ServiceWasRunning: running,
-		PendingBackup:     pending,
-	}
-	if err != nil {
-		return result, err
-	}
-	return result, nil
+	result, err := s.inner.Commit(ctx, applied)
+	result.ServiceInstalled = true
+	result.ServiceWasRunning = running
+	return result, err
 }
 
 // recoveryTimeout bounds recovery. Recovery does not inherit the caller's
@@ -123,7 +127,7 @@ const recoveryTimeout = 2 * time.Minute
 // recover undoes a failed managed install. Its result names the backup
 // when the rollback failed and the backup still exists, so the caller
 // learns where the previous binary is (0004-MADR R1).
-func (s *managedSession) recover(parent context.Context, product string, applied applyResult, receipt ReconcileResult, restart bool, origin error) (InstallResult, error) {
+func (s *managedSession) recover(parent context.Context, product string, applied AppliedReplacement, receipt ReconcileResult, restart bool, origin error) (InstallResult, error) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), recoveryTimeout)
 	defer cancel()
 	var recov error
@@ -133,20 +137,21 @@ func (s *managedSession) recover(parent context.Context, product string, applied
 		}
 	}
 	result := InstallResult{}
-	if applied.backup != "" {
-		if err := s.inner.rollback(ctx, applied); err != nil {
+	target := s.inner.Target().Path
+	if applied.Backup != "" {
+		if err := s.inner.Rollback(ctx, applied); err != nil {
 			recov = errors.Join(recov, err)
-			if _, serr := os.Lstat(applied.backup); serr == nil {
-				result = InstallResult{Target: s.inner.target.Path, Backup: applied.backup}
+			if _, serr := os.Lstat(applied.Backup); serr == nil {
+				result = InstallResult{Target: target, Backup: applied.Backup}
 			}
 		} else {
-			result = InstallResult{Target: s.inner.target.Path, RolledBack: true}
+			result = InstallResult{Target: target, RolledBack: true}
 		}
 	}
 	if errors.Is(origin, errProbeRolledBack) {
 		// The session rolled back a replacement that failed its
 		// post-install probe before recovery began.
-		result = InstallResult{Target: s.inner.target.Path, RolledBack: true}
+		result = InstallResult{Target: target, RolledBack: true}
 	}
 	if restart {
 		if err := s.life.Start(ctx, product); err != nil {
