@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-29
+status: complete
+date: 2026-09-30
 associated-madr: "0002-MADR-rehome-selfupdate-from-mcplib.md"
 ---
 # Implement the re-home of `selfupdate` and its release tooling into go-core-lib
@@ -542,3 +542,35 @@ Information").
     `36728547077`: **success** on all three operating systems.
 * 0003's PLAN is `complete`. `v1.0.0` goes on the commit that records
   this (the next one on `main`), on the owner's ask to tag.
+
+That commit is `b36ca44`. Its CI, run `36729679152`, was `success` on all
+three operating systems.
+
+#### Steps 3–5: `v1.0.0` (2026-09-30)
+
+* **Step 3.** The owner: "Tag v1.0.0 and push it."
+  * Checked first: no `v*` tag locally or on `origin`; `HEAD` =
+    `origin/main` = `b36ca4494b86e52cf1b4a315554603f1c6ee3a21`, whose CI
+    was `success`.
+  * `git tag -a v1.0.0 b36ca44… -m "go-core-lib v1.0.0"`. The tag is
+    annotated, as the fleet's tags are (`mcplib` `v1.6.0`: type `tag`,
+    subject `mcplib v1.6.0`).
+  * `git push origin v1.0.0`: `* [new tag] v1.0.0 -> v1.0.0`.
+  * `git ls-remote`: `refs/tags/v1.0.0` = `084140b7…` (the tag object),
+    and `refs/tags/v1.0.0^{}` = `b36ca449…` (the commit). That confirms the
+    guide's peeled-ref command.
+* **Tag CI.** Run `36731692522` (`push`, `v1.0.0`, `b36ca44`):
+  `success` on ubuntu-24.04, macos-15 and windows-2025.
+* **Step 4.**
+  `GOPROXY=https://proxy.golang.org go list -m -json github.com/maccavelli/go-core-lib@v1.0.0`
+  exits 0 with `"Version": "v1.0.0"`, `"GoVersion": "1.27.1"`, and
+  `Origin.Hash` `b36ca4494b86e52cf1b4a315554603f1c6ee3a21`,
+  `Ref: refs/tags/v1.0.0`. `…/@v/list` returns `v1.0.0`.
+* **Step 5.**
+  * The guide's `uses:` line and the README's workflow example name
+    `@b36ca4494b86e52cf1b4a315554603f1c6ee3a21 # go-core-lib v1.0.0`.
+  * The README's status gives the release and `go get` line.
+  * `docs/architecture.md` states the release, and drops "A tag" from
+    "What is not here".
+  * This PLAN is `complete`. The commit is made on `main`, and pushed only
+    on the owner's ask.

@@ -72,7 +72,7 @@ In the job that publishes your release, change the `uses:` line and delete
 
 ```diff
 -    uses: maccavelli/mcplib/.github/workflows/publish-selfupdate-release.yml@<mcplib SHA> # mcplib v1.x.y
-+    uses: maccavelli/go-core-lib/.github/workflows/publish-selfupdate-release.yml@<v1.0.0 commit SHA> # go-core-lib v1.0.0
++    uses: maccavelli/go-core-lib/.github/workflows/publish-selfupdate-release.yml@b36ca4494b86e52cf1b4a315554603f1c6ee3a21 # go-core-lib v1.0.0
      with:
        artifact-name: …
        products-json: …

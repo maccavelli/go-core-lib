@@ -12,7 +12,9 @@ root package and no binary. It also hosts the reusable GitHub Actions
 workflow that programs using `selfupdate` publish their releases through.
 
 The module requires Go 1.27.1 and three modules: `golang.org/x/mod v0.40.0`,
-`golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`.
+`golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`. Its current
+release is `v1.0.0`, an annotated tag on commit
+`b36ca4494b86e52cf1b4a315554603f1c6ee3a21`.
 
 ## Tree
 
@@ -127,7 +129,6 @@ interpolated into shell.
 
 ## What is not here
 
-- **A tag.** `v1.0.0` is the first.
 - **Any consumer's migration,** and `mcplib`'s deprecation of its own copy.
   Each is recorded in that repository.
 - **`docs/reports/`,** which is created with its first report.

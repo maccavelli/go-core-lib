@@ -13,8 +13,12 @@ Module: `github.com/maccavelli/go-core-lib`
 
 ## Status
 
-The module requires Go 1.27.1. The first release will be `v1.0.0`; it is not
-tagged yet.
+The module requires Go 1.27.1. The current release is `v1.0.0` (commit
+`b36ca4494b86e52cf1b4a315554603f1c6ee3a21`):
+
+```bash
+go get github.com/maccavelli/go-core-lib@v1.0.0
+```
 
 | Package | What it does |
 | :--- | :--- |
@@ -76,7 +80,7 @@ release:
     contents: write
     id-token: write
     attestations: write
-  uses: maccavelli/go-core-lib/.github/workflows/publish-selfupdate-release.yml@<full SHA of a go-core-lib tag commit>
+  uses: maccavelli/go-core-lib/.github/workflows/publish-selfupdate-release.yml@b36ca4494b86e52cf1b4a315554603f1c6ee3a21 # go-core-lib v1.0.0
   with:
     artifact-name: <the uploaded artifact holding the staged release>
     products-json: '["<product>"]'
