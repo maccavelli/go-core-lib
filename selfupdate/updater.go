@@ -47,6 +47,11 @@ func New(cfg Config) (*Updater, error) {
 			return nil, fmt.Errorf("selfupdate: verifier %d is nil", i)
 		}
 	}
+	for i, v := range cfg.ManifestVerifiers {
+		if isNil(v) {
+			return nil, fmt.Errorf("selfupdate: manifest verifier %d is nil", i)
+		}
+	}
 	if cfg.Transformer != nil && isNil(cfg.Transformer) {
 		return nil, fmt.Errorf("selfupdate: transformer is a typed nil")
 	}
@@ -72,6 +77,7 @@ func New(cfg Config) (*Updater, error) {
 		confirmer:   cfg.Confirmer,
 		limits:      cfg.Limits,
 		progress:    cfg.ProgressInterval,
+		manifestVfy: append([]ManifestVerifier(nil), cfg.ManifestVerifiers...),
 	}, nil
 }
 
@@ -205,6 +211,11 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	if err != nil {
 		return resultOut, wrapRun(req, err)
 	}
+	// Manifest verifiers run before staging exists and before any binary
+	// byte is fetched (0004-MADR G9).
+	if err = u.runManifestVerifiers(ctx, req, rel, sel, manifestBuf.Bytes()); err != nil {
+		return resultOut, wrapRun(req, err)
+	}
 	if rerr := u.report(ctx, Event{Kind: EventDownloadingBinary, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name, Bytes: sel.Binary.Size}); rerr != nil {
 		return resultOut, wrapRun(req, rerr)
 	}
@@ -335,6 +346,7 @@ func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, se
 			Open: func() (io.ReadCloser, error) {
 				return openAbsFile(path, os.O_RDONLY, 0)
 			},
+			OpenAsset: u.openAsset(rel),
 		})
 		if err != nil {
 			return err

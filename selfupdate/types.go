@@ -256,6 +256,11 @@ type Verification struct {
 	GitHubSHA256 string
 	// Open returns a new reader over the staged bytes.
 	Open func() (io.ReadCloser, error)
+	// OpenAsset opens another asset of the same release by exact name,
+	// within limit bytes, enforcing its advertised size and digest. A
+	// signature verifier uses it to fetch a detached signature
+	// (0004-MADR G9).
+	OpenAsset func(ctx context.Context, name string, limit int64) (io.ReadCloser, error)
 }
 
 // Verifier is an additional integrity or authenticity check.
@@ -587,6 +592,10 @@ type Config struct {
 	// during the binary download. Zero reports no progress (0004-MADR
 	// amendment A1); a negative value is invalid.
 	ProgressInterval time.Duration
+	// ManifestVerifiers run in order after SHA256SUMS is downloaded and
+	// parsed, before the binary is downloaded. A failure aborts the run
+	// and matches ErrIntegrity (0004-MADR G9). No element may be nil.
+	ManifestVerifiers []ManifestVerifier
 }
 
 // Updater is the coordinator. Unexported collaborator fields are populated
@@ -603,4 +612,5 @@ type Updater struct {
 	limits      Limits
 	running     atomic.Bool
 	progress    time.Duration
+	manifestVfy []ManifestVerifier
 }

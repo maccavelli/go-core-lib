@@ -1570,3 +1570,76 @@ supplied a credential. Both cases were added.
   `bytes.Equal`, and the `drainClose` sink.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
+
+### Step 7: integrity seams (2026-09-30)
+
+**What changed.**
+
+* **`manifestverify.go`** adds `ManifestVerification`, `ManifestVerifier`,
+  `ManifestVerifierFunc`, `runManifestVerifiers` (which joins `ErrIntegrity`
+  into every failure), and `openAsset`.
+  * `openAsset` requires an exact, unique name, and a positive limit capped
+    at `Limits.Executable`, then runs `validateAssetMetadata`.
+  * Its `checkedAsset` reader fails with `ErrIntegrity` on a long body, a
+    short body, or a GitHub-digest mismatch.
+* **`types.go`** appends `Config.ManifestVerifiers` and
+  `Verification.OpenAsset`.
+* **`updater.go`.** `New` refuses nil and typed-nil manifest verifiers. The
+  verifiers run right after `checksumFor`, before
+  `EventDownloadingBinary` and `CreateStaging`, and binary verifiers get
+  `OpenAsset`.
+* **`imageverify.go`** adds `NewImageVerifier`, using the GOROOT constants
+  in the PLAN's table.
+  * An ELF passes on class, machine, and `ET_EXEC` or `ET_DYN` (PIE).
+  * A Mach-O passes as a thin `TypeExec` with a matching CPU, or as a fat
+    file with any matching `TypeExec` arch; a `macho.ErrNotFat` result
+    falls back to a thin file.
+  * A PE passes on machine and `IMAGE_FILE_EXECUTABLE_IMAGE`.
+
+**Tests.**
+
+* **`manifestverify_test.go`:**
+  * order: the manifest before the verifier, and the binary after it; a
+    failure stops before the binary;
+  * a failure matches `ErrIntegrity`, and leaves the target byte-identical
+    with no staging;
+  * both kinds of verifier can read a sibling asset;
+  * `openAsset` rules, with pinned diagnostics: "shorter than advertised",
+    "longer than advertised", "github digest", limit, missing, duplicate
+    and zero limit;
+  * nil and typed-nil verifiers refused.
+* **`imageverify_test.go`:**
+  * The fixtures are real executables, cross-built in the test for
+    `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and
+    `windows/amd64`, plus a fat Mach-O the test assembles from the two
+    darwin builds.
+  * There are 15 match and mismatch rows, including non-executable
+    bodies.
+  * It also covers unsupported platforms and a non-seekable body.
+
+**Mutation proofs.** Ten mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| manifest verifiers removed from their place | `calls before the manifest verifier = []` |
+| `OpenAsset` drops the size check | `long: … is shorter than advertised …, want … "longer than advertised"` |
+| the digest check dropped | `digest: <nil>, want ErrIntegrity` |
+| duplicate names accepted | `dup with limit 1024 was opened` |
+| `ErrIntegrity` not joined | `… manifest verification failed: untrusted manifest, want ErrIntegrity` |
+| binary verifiers without `OpenAsset` | a nil-function panic |
+| ELF machine ignored | `linux-amd64 as linux/arm64: <nil>, want ErrIntegrity` |
+| the fat branch removed | `darwin-fat as darwin/amd64: … not a darwin/amd64 executable` |
+| PE machine ignored | `windows-amd64 as windows/arm64: <nil>, want ErrIntegrity` |
+| nil manifest verifier accepted | `manifest verifier <nil> accepted` |
+
+**The size-check mutation survived the first run.** A long body is still
+caught at EOF, because the reader lets one extra byte through, but it was
+reported as "shorter than advertised". The test now pins the right
+diagnostic for each case.
+
+**Checks.**
+
+* `make pre-add-check` passed on the six files, after one lint fix: an
+  `unconvert`, because `macho.MagicFat` is already `uint32`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, including the cross-built fixtures.
