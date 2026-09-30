@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-30
 decision-makers: go-core-lib maintainers
 consulted: ocp-login maintainers (the TUI updater this record generalises); go-tui-lib maintainers (the proposed home of the Bubble Tea adapter)
@@ -264,7 +264,10 @@ The design has four layers. Each layer depends only on the layers below it.
 
 ### 2. Phase 0: defect release (`v1.0.1`)
 
-This phase makes no API change.
+This phase makes no API change. Its PLAN is [0004-PLAN-v1-0-1-defect-release.md](0004-PLAN-v1-0-1-defect-release.md).
+
+Five bullets below carry a clarification added on 2026-09-30, when the
+PLAN was written against the code. Each is marked *(clarified)*.
 
 * **R1.** When `Applied` is false and `Backup` is set, carry the backup path
   into `Result.PendingBackup`, and name it, sanitised, in the error.
@@ -272,11 +275,25 @@ This phase makes no API change.
   receives on a request channel. A line typed after a cancelled `Confirm`
   still answers the next one, which keeps 0003 C7, and no read is
   outstanding once a `Confirm` is answered.
+  *(clarified)* The confirmer starts one read per outstanding request
+  and reads byte by byte up to the newline. A buffered reader would read
+  ahead and consume the host's next input, which is R2 again by another
+  route.
 * **R3.** Store the identity of the root *handle* (`root.Stat(".")`) as
   `dirInfo`, and roll back when the check after the rename fails.
+  *(clarified)* The rollback renames the backup over the target through
+  the locked directory handle (`os.Root.Rename`), not through the path.
+  A path names whatever directory is there now; the handle names the one
+  that was locked, which is where the rename went.
 * **R4.**
   * Bound the Windows busy-image retry with `InstallOptions.LockTimeout`.
   * Retry only while the image is busy, not on every access-denied.
+    *(clarified)* A busy running image refuses with access-denied as
+    well as a sharing violation (0003 B11), so the error code alone
+    cannot tell busy from denied. The retry therefore stops at once when
+    the destination carries the read-only attribute, the one genuine
+    denial that can be told apart cheaply. Every other access-denied is
+    retried only within the `LockTimeout` bound.
   * Run the standalone restore on `context.WithoutCancel`, bounded like
     managed recovery.
 * **R5.** Check the directory identity before processing the receipt, and
@@ -285,10 +302,20 @@ This phase makes no API change.
 * **R7 and R8.** Replace both line-scanning workflow checkers with one
   YAML-parsing checker (Python stdlib plus the PyYAML the runner ships).
   Keep the planted shapes as its tests.
+  *(clarified)* The Ubuntu 24.04 runner image does **not** ship PyYAML: its
+  software list names `libyaml-dev` and `yq`, but no Python YAML package
+  (checked 2026-09-30). CI therefore installs `PyYAML==6.0.3` into a
+  virtual environment from a hash-pinned requirements file. The development
+  hosts already have it. This is a CI tool, not a Go module, so `AGENTS.md`'s
+  dependency rule does not apply.
 * **R9.** Refuse `.` and `..` as asset names.
 * **G8.** Correct the two documentation mismatches. Pass the
   post-transform size, and name the digest field accurately in a new field,
   keeping the old one.
+  *(clarified)* `Verification.ManifestSHA256` is already documented as
+  "the digest from the SHA256SUMS entry"; `runVerifiers` passes the
+  staged digest instead. The fix is the value, so no new field is
+  needed.
 * **Harness.**
   * Add R1 and R2 regression tests, with a goroutine-leak check.
   * Cover the dark 0003 branches listed in §3 of the context.
