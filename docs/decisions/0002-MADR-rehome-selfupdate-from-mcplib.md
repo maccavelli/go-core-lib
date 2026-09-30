@@ -168,8 +168,11 @@ cannot run. The cost is one deleted line in one consumer.
 ### 2. No history, and no records
 
 * Files are copied from `mcplib` at `v1.6.0` (`4e1f9a53e265`), not
-  imported with history. The first commit that adds them names that tag and
-  commit.
+  imported with history. ~~The first commit that adds them names that tag
+  and commit.~~ *Amended 2026-09-29 (PLAN deviation D1): the global hook
+  writes commit messages, and it did not name them. The tag and commit are
+  recorded in the PLAN's execution record, which is committed with the
+  copy, and in `docs/architecture.md`.*
 * `mcplib`'s records stay in `mcplib`. That covers
   `docs/0005-MADR-canonicalize-cli-self-update-in-mcplib.md` and its PLAN,
   `docs/0006-MADR-raise-go-toolchain-floor-to-1-26-6.md` and

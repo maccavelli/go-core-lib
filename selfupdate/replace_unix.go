@@ -7,6 +7,8 @@ import (
 	"os"
 )
 
+var osRename = os.Rename
+
 type applyResult struct {
 	backup string
 }

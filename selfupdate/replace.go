@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	osRename    = os.Rename
 	osChmod     = os.Chmod
 	osRemove    = os.Remove
 	osLink      = os.Link

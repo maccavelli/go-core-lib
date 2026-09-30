@@ -270,3 +270,57 @@ Commit: `49affdd`.
   For windows it exits 1 with `4 issues:` at `cleanup_windows.go:54:15`
   G304, `cleanup_windows.go:123:16` SA1019, `replace.go:11:2` unused
   `osRename`, and `replace_windows.go:16:2` unused `pendingBackup`.
+
+Commit: `2b7fdae`.
+
+#### Deviation D1 (2026-09-29): the Phase 1 commit message does not name the source
+
+* **Found.** MADR §2 says "the first commit that adds them names that tag
+  and commit". The global `prepare-commit-msg` hook writes every message,
+  and `2b7fdae`'s says "Copy the self-update implementation and tests into
+  `selfupdate`" without naming `v1.6.0` or `4e1f9a53e265`. The repository's
+  rules forbid `--amend` here, except for an identifier fix.
+* **Resolution.** The provenance is carried by the records instead, which
+  is where MADR §2 now puts it (amended the same day). `2b7fdae`'s own diff
+  adds this execution record, which names `v1.6.0`. This PLAN's "Fixed
+  inputs", committed in `49affdd`, names `4e1f9a53e265`.
+  `docs/architecture.md` (Phase 5) states both. The message is not
+  rewritten. If the owner asks, it can be amended before the Phase 6 push,
+  because nothing here has been pushed.
+
+### Phase 2: the four Windows lint fixes (2026-09-29)
+
+* **Edits,** exactly MADR §3's four:
+  1. `cleanup_windows.go:54`: `root.ReadFile(name)`. The only caller,
+     `session.go:154-166`, opens `root` on `original.Dir` and passes
+     `original` as `target`, so this reads the same file as
+     `filepath.Join(target.Dir, name)`.
+  2. `cleanup_windows.go:123-126`:
+     `var token windows.Token` /
+     `if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil { return err }`.
+     That is the body of the deprecated `OpenCurrentProcessToken` in
+     `golang.org/x/sys@v0.47.0/windows/security_windows.go:658-662`.
+     A first draft, `if err = …`, raised a new gocritic `sloppyReassign`
+     finding under `GOOS=windows`. It was changed to the scoped `:=`. The
+     explicit `return err` still sets the named result, and the deferred
+     `token.Close()` runs only after a successful open, as before.
+  3. `osRename` moved from `replace.go`'s `var` block to `replace_unix.go`,
+     its only user. No test references it.
+  4. `applyResult.pendingBackup` deleted from `replace_windows.go`. No code
+     read or wrote it. The pending backup is `commitReplacement`'s return
+     value.
+* `gofmt -l selfupdate`: empty.
+* `CGO_ENABLED=0 GOOS=<t>`: `golangci-lint run` gives `0 issues.`, and
+  `go vet ./...` and `go test -c` exit 0, for linux, darwin and windows.
+  Before this phase windows had `4 issues:` (Phase 1 record).
+* `go test -race -count=1 -cover ./...`:
+  `ok … 3.499s coverage: 75.5% of statements`, unchanged.
+* **G-api** is byte-identical to Phase 1's. **G-diff** now shows the
+  Phase 1 lines plus exactly these edits: `cleanup_windows.go` 54 and
+  123-124, `replace.go` 11 (removed), `replace_unix.go` 10-11 (added), and
+  `replace_windows.go` 15-17 → 15-16.
+* `make pre-add-check`: `47 file(s) clean`.
+* The Windows tests that exercise fixes 1 and 2
+  (`TestWindowsCleanupReceiptRoundTrip`,
+  `TestWindowsCleanupReceiptDigestMismatch`) compile here and run first on
+  the Windows CI leg in Phase 6.

@@ -51,7 +51,7 @@ func processCleanupReceipt(target Target, root *os.Root) error {
 	if isReparsePoint(filepath.Join(target.Dir, name)) {
 		return fmt.Errorf("selfupdate: cleanup receipt is a reparse point")
 	}
-	data, err := os.ReadFile(filepath.Join(target.Dir, name))
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return fmt.Errorf("selfupdate: read cleanup receipt: %w", err)
 	}
@@ -120,8 +120,8 @@ func writeCleanupReceipt(target Target, result applyResult) error {
 }
 
 func restrictToCurrentUser(path string) (err error) {
-	token, err := windows.OpenCurrentProcessToken()
-	if err != nil {
+	var token windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token); err != nil {
 		return err
 	}
 	defer func() {

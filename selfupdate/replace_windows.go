@@ -12,9 +12,8 @@ import (
 )
 
 type applyResult struct {
-	backup        string
-	pendingBackup string
-	oldDigest     string
+	backup    string
+	oldDigest string
 }
 
 func isUnsupportedDirSync(err error) bool {
