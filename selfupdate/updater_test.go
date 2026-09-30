@@ -19,17 +19,33 @@ import (
 )
 
 type scriptSource struct {
-	rel    Release
-	bodies map[int64][]byte
-	calls  []string
-	mu     sync.Mutex
-	block  chan struct{}
-	err    error
+	rel     Release
+	bodies  map[int64][]byte
+	calls   []string
+	mu      sync.Mutex
+	block   chan struct{}
+	entered chan struct{} // closed when Latest is first entered
+	err     error
+	openErr map[int64]error
+	log     *[]string // optional shared call log
+}
+
+func (s *scriptSource) note(call string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, call)
+	if s.log != nil {
+		*s.log = append(*s.log, call)
+	}
 }
 
 func (s *scriptSource) Latest(ctx context.Context) (Release, error) {
+	s.note("Latest")
 	s.mu.Lock()
-	s.calls = append(s.calls, "Latest")
+	if s.entered != nil {
+		close(s.entered)
+		s.entered = nil
+	}
 	s.mu.Unlock()
 	if s.block != nil {
 		select {
@@ -41,15 +57,14 @@ func (s *scriptSource) Latest(ctx context.Context) (Release, error) {
 	return s.rel, s.err
 }
 func (s *scriptSource) ByTag(context.Context, string) (Release, error) {
-	s.mu.Lock()
-	s.calls = append(s.calls, "ByTag")
-	s.mu.Unlock()
+	s.note("ByTag")
 	return s.rel, s.err
 }
 func (s *scriptSource) OpenAsset(_ context.Context, _ Release, a Asset) (io.ReadCloser, error) {
-	s.mu.Lock()
-	s.calls = append(s.calls, "OpenAsset")
-	s.mu.Unlock()
+	s.note(fmt.Sprintf("OpenAsset:%d", a.ID))
+	if err := s.openErr[a.ID]; err != nil {
+		return nil, err
+	}
 	body, ok := s.bodies[a.ID]
 	if !ok {
 		return nil, fmt.Errorf("missing asset %d", a.ID)
@@ -58,13 +73,19 @@ func (s *scriptSource) OpenAsset(_ context.Context, _ Release, a Asset) (io.Read
 }
 
 type recReporter struct {
-	kinds []EventKind
-	errAt EventKind
-	fail  error
+	kinds  []EventKind
+	events []Event
+	errAt  EventKind
+	fail   error
+	log    *[]string // optional shared call log
 }
 
 func (r *recReporter) Report(_ context.Context, ev Event) error {
 	r.kinds = append(r.kinds, ev.Kind)
+	r.events = append(r.events, ev)
+	if r.log != nil {
+		*r.log = append(*r.log, "event:"+ev.Kind.String())
+	}
 	if r.errAt != EventUnknown && ev.Kind == r.errAt {
 		if r.fail == nil {
 			return errors.New("report failed")
@@ -128,9 +149,66 @@ func fixtureRelease(t *testing.T, product string) (Release, map[int64][]byte, []
 	return rel, map[int64][]byte{2: bin, 3: manifest}, []Platform{plat}
 }
 
+type nilPtrVerifier struct{}
+
+func (*nilPtrVerifier) Verify(context.Context, Verification) error { return nil }
+
+type nilPtrReporter struct{}
+
+func (*nilPtrReporter) Report(context.Context, Event) error { return nil }
+
+type nilPtrTransformer struct{}
+
+func (*nilPtrTransformer) Transform(context.Context, TransformRequest) error { return nil }
+
+// TestNewRejectsNilCollaborators covers 0003-MADR C3 and part of C13: every
+// required seam nil or typed-nil, a nil or typed-nil verifier, a typed-nil
+// transformer, and invalid limits.
 func TestNewRejectsNilCollaborators(t *testing.T) {
-	if _, err := New(Config{}); err == nil {
-		t.Fatal("accepted empty config")
+	rel, bodies, plats := fixtureRelease(t, "demo")
+	sel, err := NewExactAssetSelector(plats)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := func() Config {
+		return Config{
+			Source: &scriptSource{rel: rel, bodies: bodies}, Versions: NewStrictVersionPolicy(), Assets: sel,
+			Installer: pendingInstaller{}, Reporter: &recReporter{}, Confirmer: &recConfirmer{}, Limits: DefaultLimits(),
+		}
+	}
+	if _, err := New(valid()); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	var typedNilSource *scriptSource
+	var typedNilVerifier *nilPtrVerifier
+	var typedNilReporter *nilPtrReporter
+	var typedNilTransformer *nilPtrTransformer
+	cases := map[string]func(*Config){
+		"empty":              func(c *Config) { *c = Config{} },
+		"nil source":         func(c *Config) { c.Source = nil },
+		"typed-nil source":   func(c *Config) { c.Source = typedNilSource },
+		"nil versions":       func(c *Config) { c.Versions = nil },
+		"nil assets":         func(c *Config) { c.Assets = nil },
+		"nil installer":      func(c *Config) { c.Installer = nil },
+		"nil reporter":       func(c *Config) { c.Reporter = nil },
+		"typed-nil reporter": func(c *Config) { c.Reporter = typedNilReporter },
+		"nil confirmer":      func(c *Config) { c.Confirmer = nil },
+		"nil verifier":       func(c *Config) { c.Verifiers = []Verifier{&recVerifier{}, nil} },
+		"typed-nil verifier": func(c *Config) { c.Verifiers = []Verifier{typedNilVerifier} },
+		"typed-nil transformer": func(c *Config) {
+			c.Transformer = typedNilTransformer
+		},
+		"zero limits":     func(c *Config) { c.Limits = Limits{} },
+		"negative limits": func(c *Config) { c.Limits.Executable = -1 },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg := valid()
+			mutate(&cfg)
+			if u, err := New(cfg); err == nil {
+				t.Fatalf("accepted %s: %+v", name, u)
+			}
+		})
 	}
 }
 
@@ -208,36 +286,64 @@ func TestRunDeclineAndNone(t *testing.T) {
 	}
 }
 
+// TestOverlappingRun holds the first Run inside Source.Latest with a channel
+// handshake (no sleep), then asserts the overlapping Run is rejected without
+// invoking any collaborator (0003-MADR C13).
 func TestOverlappingRun(t *testing.T) {
 	block := make(chan struct{})
+	entered := make(chan struct{})
 	rel, bodies, plats := fixtureRelease(t, "demo")
-	src := &scriptSource{rel: rel, bodies: bodies, block: block}
+	src := &scriptSource{rel: rel, bodies: bodies, block: block, entered: entered}
 	_, exe := withTempHome(t)
 	inst, _ := NewStandaloneInstaller(InstallOptions{TargetPolicy: TargetPolicy{ExecutablePath: exe}})
 	sel, _ := NewExactAssetSelector(plats)
+	rep := &recReporter{}
+	conf := &recConfirmer{ok: true}
 	u, err := New(Config{
 		Source: src, Versions: NewStrictVersionPolicy(), Assets: sel,
-		Installer: inst, Reporter: &recReporter{}, Confirmer: &recConfirmer{ok: true}, Limits: DefaultLimits(),
+		Installer: inst, Reporter: rep, Confirmer: conf, Limits: DefaultLimits(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		close(started)
 		_, err := u.Run(context.Background(), Request{Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: ReleaseBuild, CheckOnly: true})
 		done <- err
 	}()
-	<-started
-	time.Sleep(20 * time.Millisecond)
-	_, err = u.Run(context.Background(), Request{Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: ReleaseBuild, CheckOnly: true})
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first Run never reached Source.Latest")
+	}
+	src.mu.Lock()
+	callsBefore := len(src.calls)
+	src.mu.Unlock()
+	eventsBefore := len(rep.kinds)
+	// Bounded, so a missing guard fails fast (the second Run would block in
+	// Latest) instead of hanging the test binary.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	_, err = u.Run(ctx2, Request{Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: ReleaseBuild, CheckOnly: true})
+	close(block)
+	firstErr := <-done
 	if !errors.Is(err, ErrConcurrentUpdate) {
-		close(block)
 		t.Fatalf("overlap err = %v", err)
 	}
-	close(block)
-	<-done
+	if !errors.Is(firstErr, ErrUpdateAvailable) {
+		t.Fatalf("first run err = %v", firstErr)
+	}
+	src.mu.Lock()
+	callsAfter := len(src.calls)
+	src.mu.Unlock()
+	// The first Run continues after unblocking, but the rejected Run made
+	// no source call of its own: exactly one Latest was ever recorded.
+	if n := strings.Count(strings.Join(src.calls, ","), "Latest"); n != 1 || callsBefore != 1 {
+		t.Fatalf("source calls before=%d after=%d: %v", callsBefore, callsAfter, src.calls)
+	}
+	if eventsBefore == 0 || conf.calls != 0 {
+		t.Fatalf("events before=%d confirmer calls=%d", eventsBefore, conf.calls)
+	}
 }
 
 func TestReporterFailureBeforeInstall(t *testing.T) {

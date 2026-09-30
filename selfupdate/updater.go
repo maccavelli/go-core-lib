@@ -10,30 +10,44 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 )
 
+// errNotCommitted reports an Installer that returned neither a committed
+// replacement nor an error (0003-MADR C2).
+var errNotCommitted = errors.New("selfupdate: installer reported no committed replacement")
+
 // New constructs an Updater. Source, Versions, Assets, Installer, Reporter,
-// and Confirmer are required. An empty Verifiers slice is valid. A nil
-// Transformer is a no-op.
+// and Confirmer are required, and none may be a typed nil. An empty
+// Verifiers slice is valid, but no element may be nil. A nil Transformer is
+// a no-op; a typed-nil Transformer is rejected.
 func New(cfg Config) (*Updater, error) {
-	if cfg.Source == nil {
+	if isNil(cfg.Source) {
 		return nil, fmt.Errorf("selfupdate: source is required")
 	}
-	if cfg.Versions == nil {
+	if isNil(cfg.Versions) {
 		return nil, fmt.Errorf("selfupdate: version policy is required")
 	}
-	if cfg.Assets == nil {
+	if isNil(cfg.Assets) {
 		return nil, fmt.Errorf("selfupdate: asset selector is required")
 	}
-	if cfg.Installer == nil {
+	if isNil(cfg.Installer) {
 		return nil, fmt.Errorf("selfupdate: installer is required")
 	}
-	if cfg.Reporter == nil {
+	if isNil(cfg.Reporter) {
 		return nil, fmt.Errorf("selfupdate: reporter is required")
 	}
-	if cfg.Confirmer == nil {
+	if isNil(cfg.Confirmer) {
 		return nil, fmt.Errorf("selfupdate: confirmer is required")
+	}
+	for i, v := range cfg.Verifiers {
+		if isNil(v) {
+			return nil, fmt.Errorf("selfupdate: verifier %d is nil", i)
+		}
+	}
+	if cfg.Transformer != nil && isNil(cfg.Transformer) {
+		return nil, fmt.Errorf("selfupdate: transformer is a typed nil")
 	}
 	if err := cfg.Limits.valid(); err != nil {
 		return nil, err
@@ -67,28 +81,34 @@ func (u *Updater) Run(ctx context.Context, req Request) (Result, error) {
 
 func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
 	if err := validateRequest(req); err != nil {
-		return Result{}, err
+		if validateProduct(req.Product) != nil {
+			// An invalid product name is not safe to put in the prefix.
+			return Result{}, err
+		}
+		return Result{}, wrapRun(req, err)
 	}
 	req.Platform = normalizePlatform(req.Platform)
 	if err := u.report(ctx, Event{Kind: EventResolvingTarget, Product: req.Product, Current: req.CurrentVersion}); err != nil {
-		return Result{}, err
+		return Result{}, wrapRun(req, err)
 	}
 	target, err := u.installer.ResolveTarget(ctx)
 	if err != nil {
 		return Result{}, wrapRun(req, err)
 	}
 	if err := u.report(ctx, Event{Kind: EventFetchingRelease, Product: req.Product, Current: req.CurrentVersion, Target: req.TargetVersion}); err != nil {
-		return Result{}, err
+		return Result{}, wrapRun(req, err)
 	}
 	rel, fromLatest, err := u.fetchRelease(ctx, req)
 	if err != nil {
 		return Result{}, wrapRun(req, err)
 	}
-	if rel.Draft || rel.Prerelease {
-		return Result{}, wrapRun(req, fmt.Errorf("selfupdate: release %s is not a stable published release", rel.Tag))
-	}
+	// PLAN §4.6 step 4 order: immutable, then state, then tag. The tag is
+	// untrusted until Validate passes, so it is always quoted.
 	if !rel.Immutable {
-		return Result{}, wrapRun(req, fmt.Errorf("selfupdate: release %s is not immutable: %w", rel.Tag, ErrMutableRelease))
+		return Result{}, wrapRun(req, fmt.Errorf("selfupdate: release %q is not immutable: %w", rel.Tag, ErrMutableRelease))
+	}
+	if rel.Draft || rel.Prerelease {
+		return Result{}, wrapRun(req, fmt.Errorf("selfupdate: release %q is not a stable published release", rel.Tag))
 	}
 	if err := u.versions.Validate(rel.Tag); err != nil {
 		return Result{}, wrapRun(req, err)
@@ -109,11 +129,15 @@ func (u *Updater) execute(ctx context.Context, req Request) (Result, error) {
 		AssetName:      sel.Binary.Name,
 		Operation:      op,
 	}
-	if err := u.report(ctx, Event{
+	selected := Event{
 		Kind: EventSelected, Product: req.Product, Current: req.CurrentVersion,
 		Target: rel.Tag, Asset: sel.Binary.Name,
-	}); err != nil {
-		return Result{}, err
+	}
+	if req.CheckOnly && op == OperationReplaceLocal {
+		selected.Detail = "local build: apply requires --force"
+	}
+	if err := u.report(ctx, selected); err != nil {
+		return Result{}, wrapRun(req, err)
 	}
 	if req.CheckOnly {
 		result.Checked = true
@@ -146,7 +170,14 @@ func (u *Updater) fetchRelease(ctx context.Context, req Request) (Release, bool,
 		return rel, true, err
 	}
 	rel, err := u.source.ByTag(ctx, req.TargetVersion)
-	return rel, false, err
+	if err != nil {
+		return Release{}, false, err
+	}
+	if rel.Tag != req.TargetVersion {
+		return Release{}, false, fmt.Errorf("selfupdate: source returned release %q for requested %q: %w",
+			rel.Tag, req.TargetVersion, ErrIntegrity)
+	}
+	return rel, false, nil
 }
 
 func (u *Updater) apply(ctx context.Context, req Request, result Result, target Target, rel Release, sel Selection) (resultOut Result, err error) {
@@ -155,18 +186,40 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	if err != nil {
 		return resultOut, wrapRun(req, err)
 	}
+	// Close runs exactly once: explicitly before the terminal event on the
+	// success path (PLAN §4.6 step 15), otherwise from this safety net.
+	closed := false
+	closeSession := func() error {
+		if closed {
+			return nil
+		}
+		closed = true
+		return sess.Close()
+	}
 	defer func() {
-		err = errors.Join(err, sess.Close())
+		if cerr := closeSession(); cerr != nil {
+			err = errors.Join(err, wrapRun(req, cerr))
+		}
 	}()
 	if rerr := u.report(ctx, Event{Kind: EventDownloadingManifest, Product: req.Product, Target: rel.Tag, Asset: sel.Manifest.Name}); rerr != nil {
-		return resultOut, rerr
+		return resultOut, wrapRun(req, rerr)
 	}
 	var manifestBuf bytes.Buffer
 	if _, err = downloadAsset(ctx, u.source, rel, sel.Manifest, &manifestBuf, u.limits.Manifest); err != nil {
 		return resultOut, wrapRun(req, err)
 	}
+	// Parse the manifest and find the one required entry before any staging
+	// or binary download (PLAN §4.6 step 9).
+	entries, err := parseSHA256SUMS(manifestBuf.Bytes())
+	if err != nil {
+		return resultOut, wrapRun(req, err)
+	}
+	manifestDigest, err := checksumFor(entries, sel.ManifestName)
+	if err != nil {
+		return resultOut, wrapRun(req, err)
+	}
 	if rerr := u.report(ctx, Event{Kind: EventDownloadingBinary, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name, Bytes: sel.Binary.Size}); rerr != nil {
-		return resultOut, rerr
+		return resultOut, wrapRun(req, rerr)
 	}
 	f, stagedPath, err := sess.CreateStaging(ctx)
 	if err != nil {
@@ -179,14 +232,6 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	}
 	if closeErr != nil {
 		return resultOut, wrapRun(req, closeErr)
-	}
-	entries, err := parseSHA256SUMS(manifestBuf.Bytes())
-	if err != nil {
-		return resultOut, wrapRun(req, err)
-	}
-	manifestDigest, err := checksumFor(entries, sel.ManifestName)
-	if err != nil {
-		return resultOut, wrapRun(req, err)
 	}
 	ghDigest := ""
 	if sel.Binary.Digest != "" {
@@ -204,10 +249,15 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	if err = u.runVerifiers(ctx, req, rel, sel, stagedPath, releaseDigest, ghDigest); err != nil {
 		return resultOut, wrapRun(req, err)
 	}
+	// Verified precedes the optional transform (the EventKind order, and
+	// PLAN §4.6 step 12); the transformed staging is revalidated below.
+	if rerr := u.report(ctx, Event{Kind: EventVerified, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name}); rerr != nil {
+		return resultOut, wrapRun(req, rerr)
+	}
 	installedDigest := releaseDigest
 	if _, isNoop := u.transformer.(noopTransformer); !isNoop {
 		if rerr := u.report(ctx, Event{Kind: EventTransforming, Product: req.Product, Asset: sel.Binary.Name}); rerr != nil {
-			return resultOut, rerr
+			return resultOut, wrapRun(req, rerr)
 		}
 		if err = u.transformer.Transform(ctx, TransformRequest{
 			Product: req.Product, Platform: req.Platform, Path: stagedPath, ReleaseDigest: releaseDigest,
@@ -219,11 +269,8 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 			return resultOut, wrapRun(req, err)
 		}
 	}
-	if rerr := u.report(ctx, Event{Kind: EventVerified, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name}); rerr != nil {
-		return resultOut, rerr
-	}
 	if rerr := u.report(ctx, Event{Kind: EventInstalling, Product: req.Product, Target: rel.Tag, Asset: sel.Binary.Name}); rerr != nil {
-		return resultOut, rerr
+		return resultOut, wrapRun(req, rerr)
 	}
 	installed, instErr := sess.Install(ctx, InstallRequest{
 		Product: req.Product,
@@ -237,22 +284,27 @@ func (u *Updater) apply(ctx context.Context, req Request, result Result, target 
 	resultOut.ServiceInstalled = installed.ServiceInstalled
 	resultOut.ServiceWasRunning = installed.ServiceWasRunning
 	resultOut.PendingBackup = installed.PendingBackup
-	if instErr != nil && !installed.Applied {
+	if !installed.Applied {
+		if instErr == nil {
+			instErr = errNotCommitted
+		}
 		return resultOut, wrapRun(req, instErr)
 	}
-	resultOut.Applied = installed.Applied
-	if resultOut.Applied {
-		detail := "release asset integrity verified"
-		if resultOut.PendingBackup != "" {
-			detail = "pending backup " + sanitizeText(resultOut.PendingBackup) + " will be removed on the next apply"
-		}
-		repErr := u.report(ctx, Event{
-			Kind: EventComplete, Product: req.Product, Current: req.CurrentVersion,
-			Target: rel.Tag, Asset: sel.Binary.Name, Detail: detail,
-		})
-		return resultOut, errors.Join(instErr, repErr)
+	resultOut.Applied = true
+	// Release the session (and its lock) before the terminal event, so a
+	// Close failure is joined with the committed result rather than surfacing
+	// after "complete" has been reported.
+	closeErr = closeSession()
+	detail := "release asset integrity verified"
+	if resultOut.PendingBackup != "" {
+		retained := filepath.Join(target.Dir, resultOut.PendingBackup)
+		detail = "pending backup " + sanitizeText(retained) + " will be validated and removed before the next download"
 	}
-	return resultOut, wrapRun(req, instErr)
+	repErr := u.report(ctx, Event{
+		Kind: EventComplete, Product: req.Product, Current: req.CurrentVersion,
+		Target: rel.Tag, Asset: sel.Binary.Name, Detail: detail,
+	})
+	return resultOut, wrapRun(req, errors.Join(instErr, closeErr, repErr))
 }
 
 func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, ghDigest string) error {
@@ -324,6 +376,21 @@ func hashFile(path string) (digest string, err error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// isNil reports an untyped nil or an interface holding a nil pointer, map,
+// slice, func, channel or interface (0003-MADR C3).
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func normalizePlatform(p Platform) Platform {

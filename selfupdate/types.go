@@ -531,7 +531,10 @@ type Config struct {
 	Reporter Reporter
 	// Confirmer approves interactive applies.
 	Confirmer Confirmer
-	// Limits bound remote bodies.
+	// Limits bound remote bodies. The Updater applies Manifest and
+	// Executable. ReleaseJSON and ErrorBody must be valid here too, but they
+	// take effect only through the ReleaseSource's own limits, for example
+	// GitHubOptions.Limits.
 	Limits Limits
 }
 

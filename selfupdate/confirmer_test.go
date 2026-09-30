@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTerminalConfirmerRequiresTTY(t *testing.T) {
@@ -49,6 +50,86 @@ func TestTerminalConfirmerYesNo(t *testing.T) {
 			t.Fatalf("ok=%v err=%v", ok, err)
 		}
 	})
+}
+
+// TestTerminalConfirmerEOFDeclines: end of input before an answer is the
+// default "N", not an error (0003-MADR C6).
+func TestTerminalConfirmerEOFDeclines(t *testing.T) {
+	orig := isTerminal
+	isTerminal = func(int) bool { return true }
+	t.Cleanup(func() { isTerminal = orig })
+	in, _ := pipeFile(t, "")
+	c := NewTerminalConfirmer(in, io.Discard)
+	ok, err := c.Confirm(context.Background(), Prompt{Product: "demo", Current: "v1.0.0", Target: "v1.1.0", Operation: OperationUpgrade})
+	if err != nil || ok {
+		t.Fatalf("ok=%v err=%v, want a decline", ok, err)
+	}
+}
+
+// TestTerminalConfirmerCancelKeepsLine: a cancelled Confirm does not lose
+// the line typed afterwards; the next Confirm receives it (0003-MADR C7).
+func TestTerminalConfirmerCancelKeepsLine(t *testing.T) {
+	orig := isTerminal
+	isTerminal = func(int) bool { return true }
+	t.Cleanup(func() { isTerminal = orig })
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
+	prompted := &signalWriter{ch: make(chan struct{}, 4)}
+	c := NewTerminalConfirmer(r, prompted)
+	p := Prompt{Product: "demo", Current: "v1.0.0", Target: "v1.1.0", Operation: OperationUpgrade}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// A context already cancelled returns before reading.
+	if _, err := c.Confirm(ctx, p); !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-cancelled err = %v", err)
+	}
+	// Cancel only once the prompt is out and the reader is blocked on input.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Confirm(ctx2, p)
+		done <- err
+	}()
+	select {
+	case <-prompted.ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal("prompt never written")
+	}
+	time.Sleep(100 * time.Millisecond)
+	cancel2()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled err = %v", err)
+	}
+	// The answer is typed while no Confirm is waiting. Give the reader left
+	// behind by the cancelled Confirm time to consume it: before C7's fix
+	// that reader swallowed the line and the next Confirm never saw it.
+	if _, err := io.WriteString(w, "y\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel3()
+	ok, err := c.Confirm(ctx3, p)
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v, want the line typed after cancellation", ok, err)
+	}
+}
+
+// signalWriter discards writes and signals each one.
+type signalWriter struct{ ch chan struct{} }
+
+func (s *signalWriter) Write(b []byte) (int, error) {
+	select {
+	case s.ch <- struct{}{}:
+	default:
+	}
+	return len(b), nil
 }
 
 func pipeFile(t *testing.T, input string) (in *os.File, w *os.File) {

@@ -253,13 +253,13 @@ func validateFetchedRelease(rel Release) error {
 		return fmt.Errorf("selfupdate: release metadata is incomplete")
 	}
 	if rel.Draft {
-		return fmt.Errorf("selfupdate: release %s is a draft", rel.Tag)
+		return fmt.Errorf("selfupdate: release %q is a draft", rel.Tag)
 	}
 	if rel.Prerelease {
-		return fmt.Errorf("selfupdate: release %s is a prerelease", rel.Tag)
+		return fmt.Errorf("selfupdate: release %q is a prerelease", rel.Tag)
 	}
 	if !rel.Immutable {
-		return fmt.Errorf("selfupdate: release %s is not immutable: %w", rel.Tag, ErrMutableRelease)
+		return fmt.Errorf("selfupdate: release %q is not immutable: %w", rel.Tag, ErrMutableRelease)
 	}
 	return nil
 }
@@ -273,7 +273,7 @@ func assetBelongsToRelease(rel Release, asset Asset) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("selfupdate: asset %d is not part of release %s", asset.ID, rel.Tag)
+	return fmt.Errorf("selfupdate: asset %d is not part of release %q", asset.ID, rel.Tag)
 }
 
 func validateAssetMetadata(a Asset, maxSize int64) error {

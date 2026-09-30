@@ -581,3 +581,103 @@ before Phase 0, and a `docs/README.md` row. It and `004d13b` were pushed to
   `go test -c` pass for linux, darwin and windows. `make pre-add-check`
   gives `47 file(s) clean`, `go test -race` passes, and
   `go mod tidy -diff` exits 0.
+
+Commit: `6f0b661`.
+
+### Phase 1: coordinator and confirmer (2026-09-29)
+
+**Changes.**
+
+* **C3.** `New` uses an `isNil` helper (reflect) for every required seam. It
+  rejects a nil or typed-nil verifier and a typed-nil transformer; an
+  untyped nil transformer is still a no-op.
+* **C1.** When `--version` is set, `fetchRelease` requires
+  `rel.Tag == req.TargetVersion`, else an `ErrIntegrity` error that quotes
+  both tags.
+* **C4.** Order is now immutable, then draft/prerelease, then `Validate`.
+  Every tag in an error is `%q`, in `updater.go` and in `github.go`'s four
+  release and asset errors.
+* **C9.** `SHA256SUMS` is parsed and the entry resolved before
+  `EventDownloadingBinary` and `CreateStaging`.
+* **C8.** `EventVerified` follows the verifiers; `EventTransforming`
+  follows it.
+* **C2.** `Applied:false` with a nil error becomes the unexported
+  `errNotCommitted`.
+* **C14.** A once-only `closeSession` runs explicitly before
+  `EventComplete` and joins its error; the defer is the safety net.
+* **C10.** Every error from `execute` and `apply` passes through `wrapRun`,
+  with two exceptions. A validation error for an invalid product name is
+  returned unprefixed, since that name is not safe to print. And
+  `ErrUpdateAvailable` stays a bare status result, as before.
+* **C5.** `EventSelected.Detail` is "local build: apply requires --force"
+  in check mode.
+* **C12.** The pending-backup detail names
+  `filepath.Join(target.Dir, name)`. `ExampleNewManagedInstaller` builds a
+  real `ManagedInstaller`, and `ExampleExitCode` is added.
+* **C6.** EOF before an answer is a decline.
+* **C7.** `terminalConfirmer` is a pointer with one reader goroutine and a
+  line channel.
+* **C11.** The `Config.Limits` doc comment is corrected.
+* **Test helpers.** `scriptSource` gained `entered`, `openErr` and a shared
+  `log`; `recReporter` gained `events` and `log`.
+* **New tests** (`updater_contract_test.go` and `confirmer_test.go`):
+  `TestRunCallOrderFailureBoundaries`, `TestRunOperationsMatrix`,
+  `TestRunRejectsTagMismatch`, `TestRunEscapesUntrustedTag`,
+  `TestRunRejectsManifestBeforeStaging`,
+  `TestRunEventOrderWithTransformer`, `TestRunTransformerSizeLimit`,
+  `TestRunInstallerNoCommitIsError`, `TestRunCompleteAfterClose`,
+  `TestRunCloseErrorJoinedAfterCommit`, `TestRunErrorsNameProduct`,
+  `TestRunLocalBuildCheckHintsForce`, `TestRunPendingBackupDetail`,
+  `TestTerminalConfirmerEOFDeclines`,
+  `TestTerminalConfirmerCancelKeepsLine`. `TestNewRejectsNilCollaborators`
+  and `TestOverlappingRun` were rewritten.
+
+**Fail-first.** The new test files ran against a `git archive` of `6f0b661`,
+with a scratch-only shim declaring `errNotCommitted`.
+
+* **Failed, as required** (14):
+  * `TestNewRejectsNilCollaborators` (subtests nil verifier, typed-nil
+    source, reporter, verifier and transformer);
+  * `TestRunErrorsNameProduct` (all 9 subtests);
+  * `TestRunRejectsTagMismatch`, `TestRunEscapesUntrustedTag`,
+    `TestRunRejectsManifestBeforeStaging`,
+    `TestRunEventOrderWithTransformer`,
+    `TestRunInstallerNoCommitIsError`, `TestRunCompleteAfterClose`,
+    `TestRunLocalBuildCheckHintsForce`, `TestRunPendingBackupDetail`,
+    `TestTerminalConfirmerEOFDeclines`;
+  * `TestTerminalConfirmerCancelKeepsLine`, after two corrections. As
+    first written it **passed** on the old code, because `cancel()` could
+    run before the old `Confirm` started its reader. The test now waits
+    for the prompt to be written, gives the reader 100 ms to block,
+    cancels, writes the answer, and confirms with a 3 s deadline. On the
+    old code: `ok=false err=context deadline exceeded, want the line
+    typed after cancellation` (3 of 3 runs). On the current code: 5 of 5
+    passes with `-race`.
+* **Passed on the old code, so proven by mutation on a scratch copy**
+  (these tests close gaps, not bugs):
+  * `ignore-confirm-error` fails `TestRunCallOrderFailureBoundaries`
+    (`failure at Confirm`);
+  * `rollback-as-upgrade` fails `TestRunOperationsMatrix`
+    (`op=upgrade … want rollback`);
+  * `no-transform-size-limit` fails `TestRunTransformerSizeLimit`
+    (`err = <nil>`);
+  * `drop-close-error` fails `TestRunCloseErrorJoinedAfterCommit`;
+  * `no-overlap-guard` first failed only through the 10-minute `go test`
+    timeout, a hang. The second `Run` is now bounded by a 5 s context, and
+    the mutation fails at once: `overlap err = selfupdate: demo: context
+    deadline exceeded`. The fake's `entered` handoff moved under its mutex
+    to avoid a data race in that mutated run.
+
+**Gates.**
+
+* `make pre-add-check`: `48 file(s) clean`.
+* `go test -race -count=1 ./...`: ok, coverage **81.4 %** (baseline
+  75.5 %). `go mod tidy -diff`: 0.
+* **G-api** against `v1.6.0`: 26 differing lines, all doc text: the import
+  header, the package comment, and the `Config.Limits`,
+  `NewTerminalConfirmer` and `New` comments. No `func`, `type`, `var` or
+  `const` line differs.
+* **Windows gate:** `go vet` 0; `go test -race` ok; the confirmer tests,
+  `TestRunCallOrderFailureBoundaries`, `TestOverlappingRun` and
+  `TestNativeReplaceRunningCopy` all PASS; the three script tests 0;
+  `overall=0`; `cleanup ok`.
