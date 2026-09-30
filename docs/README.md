@@ -8,6 +8,8 @@
 | 0001 | PLAN | [Implement the library scaffold](decisions/0001-PLAN-scaffold-shared-go-library.md) | complete |
 | 0002 | MADR | [Re-home `selfupdate` and its release tooling from mcplib as v1.0.0](decisions/0002-MADR-rehome-selfupdate-from-mcplib.md) | accepted |
 | 0002 | PLAN | [Implement the `selfupdate` re-home](decisions/0002-PLAN-rehome-selfupdate-from-mcplib.md) | in-progress |
+| 0003 | MADR | [Fix every debugging-pass finding before v1.0.0](decisions/0003-MADR-remediate-debugging-pass-findings.md) | accepted |
+| 0003 | PLAN | [Implement the debugging-pass fixes](decisions/0003-PLAN-remediate-debugging-pass-findings.md) | proposed |
 
 ## I want to…
 
