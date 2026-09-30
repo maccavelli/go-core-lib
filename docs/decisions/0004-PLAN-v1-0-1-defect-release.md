@@ -321,3 +321,36 @@ there, `afterLockHook` and a no-op `withRetryBudget`, without the fixes.
     stub was rewritten for `nilerr`).
   * Windows test host: `go vet ./...` and `go test -race -count=1 ./...`
     passed, and the script tests passed.
+
+### Step 3: confirmer (2026-09-30)
+
+**What changed.**
+
+* The long-lived `bufio.Scanner` goroutine is gone.
+* `Confirm` takes the outstanding read from `nextLine`, starting one only
+  when there is none, and clears it with `consumed` once a line arrives.
+* `readLine` reads byte by byte to the newline. It keeps at most
+  `maxAnswer` (4 KiB) of text, trims a trailing `\r` as `ScanLines` did,
+  and returns a final unterminated line before EOF.
+* A cancelled `Confirm` leaves its read pending for the next one (C7).
+
+**Tests** (`confirmer_read_test.go`). Each was run on a scratch copy of
+`33761dd`, unchanged, on macOS and on the Windows test host:
+
+| Test | On the unfixed copy |
+| :--- | :--- |
+| `TestConfirmLeavesHostInput` | FAIL: `the host's input was consumed by the confirmer` |
+| `TestConfirmersShareInput` | FAIL: `second: ok=false err=context deadline exceeded, want its own "y"` |
+| `TestConfirmLeaksNoReader` | FAIL: `goroutines: 5 after an answered Confirm, 4 before` |
+
+* **Checks.**
+  * On the fixed tree, every confirmer test passed three times under
+    `-race`, including the existing C7 test
+    (`TestTerminalConfirmerCancelKeepsLine`).
+  * `make pre-add-check` passed on both files.
+  * The Windows test host passed `go vet ./...` and
+    `go test -race -count=1 ./...`.
+* `TestConfirmersShareInput` keeps one 100 ms pause, with a comment. It
+  orders nothing: it gives a wrongly lingering reader time to block, so the
+  old failure is observed rather than raced. The fixed code passes with or
+  without it.

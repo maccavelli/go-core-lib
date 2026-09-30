@@ -1,7 +1,6 @@
 package selfupdate
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -19,11 +18,13 @@ type terminalConfirmer struct {
 	in  *os.File
 	out io.Writer
 
-	// One reader goroutine per confirmer delivers lines through lines, so a
-	// Confirm cancelled mid-read leaves its line for the next Confirm rather
-	// than losing it (0003-MADR C7).
-	start sync.Once
-	lines chan lineResult
+	// pending is the one outstanding read, if any. A Confirm starts a read
+	// only when none is outstanding, and the read ends after one line, so
+	// an answered Confirm leaves nothing reading the input (0004-MADR R2).
+	// A Confirm cancelled mid-read leaves its read pending, and the next
+	// Confirm receives that line rather than losing it (0003-MADR C7).
+	mu      sync.Mutex
+	pending chan lineResult
 }
 
 type lineResult struct {
@@ -39,20 +40,51 @@ func NewTerminalConfirmer(in *os.File, out io.Writer) Confirmer {
 	return &terminalConfirmer{in: in, out: out}
 }
 
-func (c *terminalConfirmer) readLines() {
-	c.lines = make(chan lineResult, 1)
-	go func() {
-		s := bufio.NewScanner(c.in)
-		for s.Scan() {
-			c.lines <- lineResult{line: s.Text()}
+// maxAnswer bounds the answer text kept from one line; the rest of an
+// over-long line is read and discarded.
+const maxAnswer = 4096
+
+// readLine reads one line from r a byte at a time. A buffered reader
+// would read past the newline and take input the host program reads
+// next (0004-MADR R2).
+func readLine(r io.Reader) lineResult {
+	var line []byte
+	var b [1]byte
+	for {
+		n, err := r.Read(b[:])
+		if n == 1 {
+			if b[0] == '\n' {
+				return lineResult{line: strings.TrimSuffix(string(line), "\r")}
+			}
+			if len(line) < maxAnswer {
+				line = append(line, b[0])
+			}
 		}
-		err := s.Err()
-		if err == nil {
-			err = io.EOF
+		if err != nil {
+			if errors.Is(err, io.EOF) && len(line) > 0 {
+				return lineResult{line: string(line)}
+			}
+			return lineResult{err: err}
 		}
-		c.lines <- lineResult{err: err}
-		close(c.lines)
-	}()
+	}
+}
+
+// nextLine returns the outstanding read, starting one when there is none.
+func (c *terminalConfirmer) nextLine() chan lineResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending == nil {
+		ch := make(chan lineResult, 1)
+		go func() { ch <- readLine(c.in) }()
+		c.pending = ch
+	}
+	return c.pending
+}
+
+func (c *terminalConfirmer) consumed() {
+	c.mu.Lock()
+	c.pending = nil
+	c.mu.Unlock()
 }
 
 func (c *terminalConfirmer) Confirm(ctx context.Context, p Prompt) (bool, error) {
@@ -77,12 +109,13 @@ func (c *terminalConfirmer) Confirm(ctx context.Context, p Prompt) (bool, error)
 	if _, err := io.WriteString(c.out, prompt); err != nil {
 		return false, err
 	}
-	c.start.Do(c.readLines)
+	lines := c.nextLine()
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
-	case r, ok := <-c.lines:
-		if !ok || errors.Is(r.err, io.EOF) {
+	case r := <-lines:
+		c.consumed()
+		if errors.Is(r.err, io.EOF) {
 			// End of input before an answer is the default: decline.
 			return false, nil
 		}
