@@ -6,6 +6,8 @@
 | :--- | :--- | :--- | :--- |
 | 0001 | MADR | [Scaffold go-core-lib as a Go 1.27.1 shared library](decisions/0001-MADR-scaffold-shared-go-library.md) | accepted |
 | 0001 | PLAN | [Implement the library scaffold](decisions/0001-PLAN-scaffold-shared-go-library.md) | complete |
+| 0002 | MADR | [Re-home `selfupdate` and its release tooling from mcplib as v1.0.0](decisions/0002-MADR-rehome-selfupdate-from-mcplib.md) | accepted |
+| 0002 | PLAN | [Implement the `selfupdate` re-home](decisions/0002-PLAN-rehome-selfupdate-from-mcplib.md) | in-progress |
 
 ## I want to…
 
