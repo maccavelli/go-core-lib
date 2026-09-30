@@ -530,3 +530,15 @@ Information").
 * Before the tag, the 0003 commits are pushed on the owner's ask, and the
   push's CI must pass on all three operating systems.
 * Steps 3–5 resume only when 0003's PLAN is `complete`.
+
+#### Entry 2026-09-30: the 0003 commits pushed, CI green
+
+* The owner: "Stage, commit, and push all outstanding".
+  * `main` `6b9fb99..a7d5f01` gave CI `36726867210`: failure on Linux,
+    from the runner's unpinned shellcheck. That is 0003-PLAN deviation D5,
+    whose Windows and macOS legs passed.
+  * The owner chose to fix the line and pin shellcheck v0.11.0 (the
+    latest, and this host's version). `a7d5f01..efe1e80` gave CI
+    `36728547077`: **success** on all three operating systems.
+* 0003's PLAN is `complete`. `v1.0.0` goes on the commit that records
+  this (the next one on `main`), on the owner's ask to tag.

@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-09-30
 associated-madr: "0003-MADR-remediate-debugging-pass-findings.md"
 ---
@@ -1351,5 +1351,32 @@ Commit: `a7d5f01`.
   * The YAML parses. `actionlint` v1.7.12: 0. `markdownlint-cli2@0.23.2`: 0.
   * `make pre-add-check`: `52 file(s) clean`.
   * Windows gate: `overall=0`, `cleanup ok`.
-* **Pending:** the push's CI on three operating systems, recorded below
-  when it finishes. This PLAN stays `in-progress` until then.
+* ~~**Pending:** the push's CI on three operating systems, recorded below
+  when it finishes. This PLAN stays `in-progress` until then.~~ Done;
+  see below.
+
+Commit: `efe1e80`, pushed after the disclosure guard (exit 0):
+`a7d5f01..efe1e80 main -> main`.
+
+**CI run `36728547077`: `success`.**
+
+* `validate (macos-15)` and `validate (windows-2025)` pass.
+* `validate (ubuntu-24.04)` passes. Read from the job's full raw log:
+  `gh run view --log` and the jobs API returned only 7 of its step groups,
+  and the API showed steps as `in_progress` on a completed job. The full
+  log has 424 lines, all 10 `Run` groups, and no `##[error]`:
+  * `go test` and `go test -race -count=1`: `ok …/selfupdate`;
+  * `make lint`: `0 issues.` for each of the three targets;
+  * `govulncheck`: `No vulnerabilities found.`;
+  * `…/shellcheck-v0.11.0.linux.x86_64.tar.xz: OK`, `version: 0.11.0`, and
+    `markdownlint-cli2`: `Summary: 0 issues in 0 files`;
+  * the verifier test: `all fixtures passed`; the refuse test:
+    `8 passed, 0 failed`;
+  * `check-workflow-gh-repo: ok`, and its test `6 passed, 0 failed`;
+  * `check-workflow-expressions: ok` (twice: both workflows), and its test
+    `4 passed, 0 failed`.
+* The first CI run of the Phase 6 steps (`36726867210`, on `a7d5f01`)
+  failed as D5 records. This run is the first green one.
+
+This PLAN is `complete`. 0002-PLAN Phase 6 steps 3–5 (tag `v1.0.0`, tag CI,
+proxy check, the guide's SHA) wait for the owner's ask to tag.
