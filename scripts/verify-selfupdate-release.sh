@@ -49,7 +49,7 @@ done
 }
 
 python3 - "$DIR" "$PRODUCTS_JSON" "$PLATFORMS_JSON" "$EXTRAS_JSON" "$TAG" <<'PY'
-import hashlib, json, os, re, sys
+import hashlib, json, os, re, stat, sys, unicodedata
 
 dirpath, products_raw, platforms_raw, extras_raw, tag = sys.argv[1:6]
 tag_re = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -99,7 +99,10 @@ for plat in platforms:
 
 seen_extras = set()
 for extra in extras:
-    if not isinstance(extra, str) or extra in ("", ".", "..") or "/" in extra or "\\" in extra:
+    # The product-name character class: never a path, never a shell glob or
+    # word separator, so the upload step can pass names safely
+    # (0003-MADR D5).
+    if not isinstance(extra, str) or not product_re.match(extra):
         fail("invalid extra asset %r" % extra)
     if extra in seen_extras or extra == "SHA256SUMS" or extra.startswith("SHA256SUMS-"):
         fail("invalid or duplicate extra asset %r" % extra)
@@ -126,8 +129,11 @@ if tag and not tag_re.match(tag):
 present = []
 for name in os.listdir(dirpath):
     path = os.path.join(dirpath, name)
-    if os.path.isdir(path):
+    mode = os.lstat(path).st_mode
+    if stat.S_ISDIR(mode):
         fail("unexpected directory %s in staging" % name)
+    if not stat.S_ISREG(mode):
+        fail("staged entry %s is not a regular file (0003-MADR D6)" % name)
     present.append(name)
 
 present_set = set(present)
@@ -136,31 +142,73 @@ if present_set != expected:
     extra = sorted(present_set - expected)
     fail("file set mismatch missing=%s extra=%s" % (missing, extra))
 
+MAX_CHECKSUM_LINE = 4096  # selfupdate/checksums.go maxChecksumLine
+
+
+def go_isspace(c):
+    # Go's unicode.IsSpace, which differs from str.isspace (that also
+    # counts U+001C..U+001F).
+    return c in "\t\n\v\f\r \x85\xa0" or unicodedata.category(c) in ("Zs", "Zl", "Zp")
+
+
+def go_trim_space(s):
+    start, end = 0, len(s)
+    while start < end and go_isspace(s[start]):
+        start += 1
+    while end > start and go_isspace(s[end - 1]):
+        end -= 1
+    return s[start:end]
+
+
+def go_fields(s):
+    fields, cur = [], []
+    for c in s:
+        if go_isspace(c):
+            if cur:
+                fields.append("".join(cur))
+                cur = []
+        else:
+            cur.append(c)
+    if cur:
+        fields.append("".join(cur))
+    return fields
+
+
 def parse_sums(path):
+    """Mirror parseSHA256SUMS in selfupdate/checksums.go (0003-MADR D1)."""
+    base = os.path.basename(path)
+    with open(path, "rb") as f:
+        raw = f.read()
+    # bufio.ScanLines splits on \n only; a final empty segment is no line.
+    segments = raw.split(b"\n")
+    if segments and segments[-1] == b"":
+        segments.pop()
     entries = {}
-    with open(path, "r", encoding="utf-8", newline="") as f:
-        data = f.read()
-    if not data:
-        fail("%s is empty" % os.path.basename(path))
-    for i, raw in enumerate(data.splitlines(), 1):
-        line = raw.rstrip("\r")
-        stripped = line.strip()
-        if stripped == "" or stripped.startswith("#"):
+    for i, seg in enumerate(segments, 1):
+        # The scanner's 4096-byte buffer must hold the line and its newline.
+        if len(seg) >= MAX_CHECKSUM_LINE:
+            fail("%s line %d: longer than the client accepts" % (base, i))
+        line = seg.decode("utf-8", errors="surrogateescape").rstrip("\r")
+        trimmed = go_trim_space(line)
+        if trimmed == "" or trimmed.startswith("#"):
             continue
-        fields = line.split()
+        fields = go_fields(line)
         if len(fields) != 2:
-            fail("%s line %d: want exactly two fields" % (os.path.basename(path), i))
+            fail("%s line %d: want exactly two fields" % (base, i))
         digest, name = fields
         if name.startswith("*"):
             name = name[1:]
-        if not hex_re.match(digest):
-            fail("%s line %d: malformed digest" % (os.path.basename(path), i))
-        if name in ("", ".", "..") or "/" in name or "\\" in name:
-            fail("%s line %d: filename is not a basename" % (os.path.basename(path), i))
-        key = name
-        if key in entries:
-            fail("%s duplicate filename %s" % (os.path.basename(path), name))
-        entries[key] = digest.lower()
+        if name == "" or "*" in name:
+            fail("%s line %d: malformed filename" % (base, i))
+        if not hex_re.match(digest) or not digest.isascii():
+            fail("%s line %d: malformed digest" % (base, i))
+        if name in (".", "..") or "/" in name or "\\" in name or os.path.basename(name) != name:
+            fail("%s line %d: filename is not a basename" % (base, i))
+        if name in entries:
+            fail("%s duplicate filename %s" % (base, name))
+        entries[name] = digest.lower()
+    if not entries:
+        fail("%s has no entries" % base)
     return entries
 
 sums = parse_sums(os.path.join(dirpath, "SHA256SUMS"))

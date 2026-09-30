@@ -13,6 +13,11 @@
 # (docs/decisions/0001-MADR-scaffold-shared-go-library.md §5)
 * text=auto eol=lf
 
+# The SHA256SUMS parity fixtures test line endings themselves (CRLF, lone CR,
+# U+0085), so their bytes must never be converted
+# (docs/decisions/0003-MADR-remediate-debugging-pass-findings.md D1).
+selfupdate/testdata/manifest-parity/** -text
+
 # Binary files must never be touched by EOL conversion.
 *.png   binary
 *.jpg   binary

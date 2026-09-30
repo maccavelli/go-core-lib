@@ -30,11 +30,17 @@ check() { # name want got
 	fi
 }
 
-# stub_gh <exit-code> <output>
+# stub_gh <exit-code> <output> [<repo-view-exit-code>]
+# `gh repo view` exits with the third argument (default 0); every other
+# invocation prints <output> and exits with <exit-code>.
 stub_gh() {
 	mkdir -p "$WORK/bin"
 	cat >"$WORK/bin/gh" <<STUB
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "repo view" ]; then
+	[ "${3:-0}" -eq 0 ] || echo "GraphQL: Could not resolve to a Repository" >&2
+	exit ${3:-0}
+fi
 printf '%s\n' "$2" >&2
 exit $1
 STUB
@@ -43,7 +49,7 @@ STUB
 
 run_guard() {
 	set +e
-	GH="$WORK/bin/gh" "$GUARD" v1.2.3 >/dev/null 2>&1
+	GH_REPO="${TEST_GH_REPO-o/r}" GH="$WORK/bin/gh" "$GUARD" v1.2.3 >/dev/null 2>&1
 	rc=$?
 	set -e
 	echo "$rc"
@@ -73,9 +79,18 @@ check "missing credentials is refused" 1 "$(run_guard)"
 
 # 5. Usage errors.
 set +e
-GH="$WORK/bin/gh" "$GUARD" >/dev/null 2>&1
+GH_REPO=o/r GH="$WORK/bin/gh" "$GUARD" >/dev/null 2>&1
 check "no argument is rejected" 1 "$?"
 set -e
+
+# 6. 0003-MADR D7: "release not found" from a repository gh cannot read.
+#    The release query would say "not found"; the repository probe fails.
+stub_gh 1 "release not found" 1
+check "unreadable repository is refused" 1 "$(run_guard)"
+
+# 7. 0003-MADR D7: GH_REPO unset or empty.
+stub_gh 1 "release not found"
+check "empty GH_REPO is refused" 1 "$(TEST_GH_REPO='' run_guard)"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

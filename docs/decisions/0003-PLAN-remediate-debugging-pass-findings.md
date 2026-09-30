@@ -974,3 +974,119 @@ Commit: `339fd17`.
   `TestMoveFileReplaceHonoursContext`,
   `TestMoveFileReplaceRetriesAccessDenied`, `TestRunPendingBackupDetail`,
   `TestRunPendingBackupAbsolutePath`.
+
+Commit: `14b40a8`.
+
+### Phase 5: release tooling (2026-09-30)
+
+**Changes.**
+
+* **D1.** `verify-selfupdate-release.sh`'s `parse_sums` is now a port of
+  `selfupdate/checksums.go`:
+  * it splits on `\n` only;
+  * a line of 4096 bytes or more fails (the scanner buffer);
+  * trailing `\r` is stripped;
+  * blank lines and comments are recognised, and fields split, with an
+    explicit `go_isspace`. Python's `str.isspace` also counts
+    U+001C–U+001F, so it could not be used;
+  * one `*` marker is allowed; digests are hex; names are basenames;
+    duplicates and a manifest with no entries are refused.
+
+  23 fixtures in `selfupdate/testdata/manifest-parity/<case>/`
+  (`SHA256SUMS` + `expect`), 9 accept and 14 reject, are run by
+  `TestManifestParityFixtures` (Go) and by the verifier test (shell). A
+  scratch generator built them from fixed bodies (`linux-body`,
+  `win-body`), with special characters made by `chr()`.
+* **D5.**
+  * Extras must match the product-name class
+    `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`. The consumers' current extras
+    (`install.sh`, `install.ps1`, `magic-cli-remote-v0.20.0-arm64.apk`)
+    are accepted by name in the test.
+  * The upload step builds a `files` array from
+    `find staging -type f -print0 | sort -z`.
+* **D6.** A staged entry that `lstat`s as anything but a regular file
+  (symlink, device) is refused.
+* **D7.** `refuse-existing-release.sh` refuses when `GH_REPO` is empty or
+  `gh repo view "$GH_REPO"` fails. Its test stub answers `repo view`
+  separately, with new cases "unreadable repository" and "empty
+  `GH_REPO`" (8 cases).
+* **D8.**
+  * Every `run:` block reads `TAG` / `REF_TYPE` from `env:`; the only
+    `github.ref_*` expressions left are in `env:` blocks.
+  * New `check-workflow-expressions.sh` fails on `${{` inside a `run:`
+    block or on a one-line `run:`.
+  * Its `check-workflow-expressions_test.sh` covers a planted block
+    expression, a planted one-line expression, an allowed `env:`
+    expression, and the real workflow.
+* **D4.** `check-workflow-gh-repo.sh`:
+  * skips comment lines before matching `GH_REPO:`;
+  * resets its state at any `^      - ` step;
+  * counts `gh repo` and the refuse script's invocation as calls.
+
+  New `check-workflow-gh-repo_test.sh` (6 cases).
+* **D10.** The verifier test adds:
+  * the 23 parity cases;
+  * a Windows binary without `.exe`, empty platforms, and a nested
+    directory;
+  * a symlinked binary (only when the shell creates a real link);
+  * four unsafe extra names, and two consumer extra names.
+* Two SC2016 notes in the new tests are deliberate (literal `$TAG` / `$X`
+  written into planted YAML). They are disabled per line with that reason.
+
+#### Deviation D4 (2026-09-30): `.gitattributes` for the parity fixtures
+
+* **Found.** `* text=auto eol=lf` would normalise the CRLF, lone-CR and
+  multiple-CR fixtures on commit, silently turning them into LF cases.
+  Shown in a scratch repository with the same attributes: `without -text:
+  CR bytes in index = 0 (working file has 2)`.
+* **Resolution.** `selfupdate/testdata/manifest-parity/** -text`, with a
+  comment. In this repository, `git check-attr text` reports `unset`, and
+  the staged bytes equal the working bytes for all three CR fixtures.
+* **Scope added:** `.gitattributes`, one rule.
+
+#### Incident (2026-09-30): a real `gh` ran during a demonstration
+
+* **What happened.** The first D5 upload demonstration put a stub `gh`
+  first on `PATH`. This host's shell startup re-orders `PATH`, which is the
+  same trap `refuse-existing-release_test.sh` documents, so the real `gh`
+  ran `gh release upload v1 staging/install me.sh` in a scratch directory.
+  It failed at once: `failed to run git: fatal: not a git repository`.
+  There was no repository context and no `GH_REPO`, so it could not
+  address any repository.
+* **Checked.** `gh release list -R maccavelli/go-core-lib` returned no
+  releases.
+* **Corrected.** The demonstration was redone with `gh` as a shell
+  **function**, which cannot fall through to a binary. Old line: `gh got 3
+  file argument(s): [staging/demo-linux-amd64] [staging/install] [me.sh]`.
+  New: `gh got 2 file argument(s): … [staging/install me.sh]`.
+
+**Fail-first**, against `14b40a8`'s tools:
+
+* The old verifier **accepts** `lone-cr`, `vertical-tab`, `form-feed`,
+  `file-separator`, `next-line` and `long-comment`, all of which the
+  client rejects (D1). It also accepts the extras `install me.sh`, `*`
+  and `a;b` (D5), and a symlinked binary (D6).
+* The new refuse test against the old guard: `FAIL unreadable repository
+  is refused`, `FAIL empty GH_REPO is refused`, `6 passed, 2 failed` (D7).
+* The new checker test against the old checker: `FAIL refuse script
+  without GH_REPO`, `FAIL commented-out GH_REPO`, `FAIL unnamed step
+  inherits nothing`, `3 passed, 3 failed` (D4).
+* The new expressions checker on the old workflow: fails, reporting 7
+  interpolations (D8).
+* `TestManifestParityFixtures` passes on the old Go code, whose parser
+  was correct. Mutation `go-fields-lenient` (`len(fields) < 2`) fails it at
+  `three-fields`.
+
+**Gates.**
+
+* `make pre-add-check`: `52 file(s) clean`.
+* `go test -race -cover`: **85.2 %**. `go mod tidy -diff`: 0.
+* `shellcheck scripts/*.sh`: 0. Both workflows parse.
+* **Windows gate** (the scripts under the host's Git Bash):
+  * `go vet` 0, `go test -race` 0 (including `TestManifestParityFixtures`);
+  * refuse test `8 passed`, checker test `6 passed`, expressions checker
+    and test `4 passed`;
+  * verifier test `all fixtures passed`, with "skip - symlinked binary in
+    staging (this shell cannot create a symlink)": Git Bash's `ln -s`
+    copies. The symlink case ran and passed on this host;
+  * `overall=0`, `cleanup ok`.

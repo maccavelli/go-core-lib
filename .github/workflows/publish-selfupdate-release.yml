@@ -29,15 +29,22 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     steps:
+      # Every run block reads the ref through env, never through an
+      # interpolated ${{ }}: a tag name is attacker-chosen text, and
+      # interpolation would paste it into the script before any check
+      # (docs/decisions/0003-MADR-remediate-debugging-pass-findings.md D8).
       - name: Require a strict stable tag
         shell: bash
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ "${{ github.ref_type }}" != "tag" ]; then
+          if [ "$REF_TYPE" != "tag" ]; then
             echo "publish-selfupdate-release: ref is not a tag" >&2
             exit 1
           fi
-          tag="${{ github.ref_name }}"
+          tag="$TAG"
           if ! printf '%s' "$tag" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
             echo "publish-selfupdate-release: $tag is not a strict stable tag" >&2
             exit 1
@@ -74,10 +81,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           chmod +x .core-lib-release-tools/scripts/refuse-existing-release.sh
-          .core-lib-release-tools/scripts/refuse-existing-release.sh "${{ github.ref_name }}"
+          .core-lib-release-tools/scripts/refuse-existing-release.sh "$TAG"
 
       # No checkout of the CALLING repository is added here. actions/checkout
       # defaults to clean: true, which removes untracked files, and staging/
@@ -96,6 +104,7 @@ jobs:
           PRODUCTS_JSON: ${{ inputs.products-json }}
           PLATFORMS_JSON: ${{ inputs.platforms-json }}
           EXTRAS_JSON: ${{ inputs.extra-assets-json }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           chmod +x .core-lib-release-tools/scripts/verify-selfupdate-release.sh
@@ -104,20 +113,24 @@ jobs:
             --products "$PRODUCTS_JSON" \
             --platforms "$PLATFORMS_JSON" \
             --extras "$EXTRAS_JSON" \
-            --tag "${{ github.ref_name }}"
+            --tag "$TAG"
 
       - name: Create a draft release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          tag="${{ github.ref_name }}"
-          gh release create "$tag" --draft --verify-tag --generate-notes
-          # Upload the explicit validated file list. --clobber is forbidden.
-          # shellcheck disable=SC2046
-          gh release upload "$tag" $(find staging -type f -print | sort)
+          gh release create "$TAG" --draft --verify-tag --generate-notes
+          # Upload the explicit validated file list, one argument per file
+          # (0003-MADR D5). --clobber is forbidden.
+          files=()
+          while IFS= read -r -d '' f; do
+            files+=("$f")
+          done < <(find staging -type f -print0 | sort -z)
+          gh release upload "$TAG" "${files[@]}"
 
       - name: Attest the staged files
         uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
@@ -129,18 +142,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          gh release edit "${{ github.ref_name }}" --draft=false
+          gh release edit "$TAG" --draft=false
 
       - name: Wait for immutability and release attestation
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          tag="${{ github.ref_name }}"
+          tag="$TAG"
           deadline=$((SECONDS + 120))
           while [ "$SECONDS" -lt "$deadline" ]; do
             immutable=$(gh release view "$tag" --json isImmutable --jq .isImmutable || true)

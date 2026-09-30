@@ -116,4 +116,81 @@ run_usage "--repository is not an option" \
 	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
 	--repository maccavelli/magic-cli-remote
 
+# 0003-MADR D1: the fixtures the Go client's TestManifestParityFixtures runs.
+# The gate must accept exactly the manifests the client can parse.
+PARITY="$ROOT/selfupdate/testdata/manifest-parity"
+count=0
+for case_dir in "$PARITY"/*/; do
+	name=$(basename "$case_dir")
+	d="$WORKDIR/parity-$name"
+	mkdir -p "$d"
+	printf 'linux-body' >"$d/demo-linux-amd64"
+	printf 'win-body' >"$d/demo-windows-amd64.exe"
+	cp "$case_dir/SHA256SUMS" "$d/SHA256SUMS"
+	expect=$(cat "$case_dir/expect")
+	case "$expect" in
+	accept)
+		run_ok "parity $name" --dir "$d" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras '[]'
+		;;
+	reject)
+		run_fail "parity $name" --dir "$d" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras '[]'
+		;;
+	*)
+		fail "parity $name: bad expect file"
+		;;
+	esac
+	count=$((count + 1))
+done
+[ "$count" -ge 20 ] || fail "only $count parity fixtures found"
+
+# 0003-MADR D10: staging-set cases.
+NOEXE="$WORKDIR/noexe"
+make_valid "$NOEXE"
+mv "$NOEXE/demo-windows-amd64.exe" "$NOEXE/demo-windows-amd64"
+printf '%s  demo-linux-amd64\n%s  demo-windows-amd64\n' "$linux" "$win" >"$NOEXE/SHA256SUMS"
+run_fail "windows binary without .exe" \
+	--dir "$NOEXE" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS"
+
+run_fail "empty platforms" \
+	--dir "$VALID" --products "$PRODUCTS" --platforms '[]' --extras "$EXTRAS"
+
+SUBDIR="$WORKDIR/subdir"
+make_valid "$SUBDIR"
+mkdir "$SUBDIR/nested"
+run_fail "directory in staging" \
+	--dir "$SUBDIR" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS"
+
+# 0003-MADR D6: a staged symlink is refused, even when its target's bytes
+# match. Git Bash may make a copy instead of a link; only a real link tests
+# anything.
+LINKED="$WORKDIR/linked"
+make_valid "$LINKED"
+mv "$LINKED/demo-linux-amd64" "$WORKDIR/linked-target"
+ln -s "$WORKDIR/linked-target" "$LINKED/demo-linux-amd64" 2>/dev/null || true
+if [ -L "$LINKED/demo-linux-amd64" ]; then
+	run_fail "symlinked binary in staging" \
+		--dir "$LINKED" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS"
+else
+	echo "skip - symlinked binary in staging (this shell cannot create a symlink)"
+fi
+
+# 0003-MADR D5: extras must be safe single shell words.
+for extra in 'install me.sh' '*' 'a;b' '-flag'; do
+	UNSAFE="$WORKDIR/unsafe-$count"
+	count=$((count + 1))
+	make_valid "$UNSAFE"
+	printf 'x' >"$UNSAFE/$extra"
+	run_fail "unsafe extra name [$extra]" \
+		--dir "$UNSAFE" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "[\"$extra\"]"
+done
+for extra in 'install.ps1' 'magic-cli-remote-v0.20.0-arm64.apk'; do
+	SAFE="$WORKDIR/safe-$count"
+	count=$((count + 1))
+	make_valid "$SAFE"
+	rm -f "$SAFE/install.sh"
+	printf 'x' >"$SAFE/$extra"
+	run_ok "consumer extra name [$extra]" \
+		--dir "$SAFE" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "[\"$extra\"]"
+done
+
 echo "verify-selfupdate-release_test: all fixtures passed"

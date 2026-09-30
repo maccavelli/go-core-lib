@@ -25,6 +25,20 @@ if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
 fi
 tag="$1"
 
+# "release not found" is also what gh says for a repository it cannot see,
+# so first prove the repository itself is readable; otherwise an absent or
+# unreadable GH_REPO would read as "no release yet" and proceed
+# (docs/decisions/0003-MADR-remediate-debugging-pass-findings.md D7).
+if [ -z "${GH_REPO:-}" ]; then
+	echo "refuse-existing-release: GH_REPO is not set; refusing" >&2
+	exit 1
+fi
+if ! repo_out=$("$GH" repo view "$GH_REPO" --json name 2>&1); then
+	echo "refuse-existing-release: cannot read repository $GH_REPO; refusing" >&2
+	echo "$repo_out" >&2
+	exit 1
+fi
+
 if out=$("$GH" release view "$tag" 2>&1); then
 	echo "refuse-existing-release: release $tag already exists (including drafts)" >&2
 	exit 1
