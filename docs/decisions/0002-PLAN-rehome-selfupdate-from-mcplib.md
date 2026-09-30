@@ -232,3 +232,41 @@ captured before any filter.
 The owner approved: "Proceed, drop bridge release and fix windows
 findings". The MADR is `accepted` and this PLAN is `in-progress`. The two
 0002 rows are added to `docs/README.md`.
+
+Commit: `49affdd`.
+
+### Phase 1: copy the package (2026-09-29)
+
+* **Extraction.** `git -C ../mcplib archive v1.6.0 selfupdate | tar -x`
+  wrote 49 files, and `diff -r` against a separate `v1.6.0` reference
+  archive was empty before the edits. There was exactly one
+  `github.com/maccavelli/mcplib/selfupdate` occurrence (`example_test.go:10`)
+  before the rewrite, and none after.
+* **Module.** `go get` of the three pins, then `go mod tidy` (exit 0), gave
+  three direct requirements: `golang.org/x/mod v0.40.0`,
+  `golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`. The six
+  `go.sum` lines are identical to `mcplib` `v1.6.0`'s lines for those
+  modules. `go mod tidy -diff`: exit 0.
+* **G-diff** against the `v1.6.0` reference (exit 1, as expected) shows
+  three changed lines: `doc.go:2` (`mcplib consumers.` → `fleet
+  programs.`), `doc.go:16` (`mcplib` → `go-core-lib`), and
+  `example_test.go:10` (the import path).
+* **G-api.** `go doc -all ./selfupdate`, 612 lines each side. The diff has
+  two parts: the package comment's two sentences (as MADR §3 allows), and
+  the header line
+  `package selfupdate // import "github.com/maccavelli/go-core-lib/selfupdate"`.
+  That is the module path MADR §1 decides, not an API change. No
+  identifier, signature or other doc comment differs.
+* `go test -race -count=1 ./...`:
+  `ok github.com/maccavelli/go-core-lib/selfupdate 3.880s coverage: 75.5% of statements`.
+  That is the same coverage as `mcplib`'s own run.
+* `make lint` (host): `0 issues.` `make vuln`:
+  `No vulnerabilities found.` `make pre-add-check`:
+  `go-precheck: 47 file(s) clean (gofmt, golangci-lint, go vet, go test, govulncheck).`
+* `CGO_ENABLED=0 GOOS=<t> go test -c -o /dev/null ./selfupdate`: exit 0 for
+  linux, darwin and windows.
+* **Before Phase 2** (recorded now, on this copy):
+  `CGO_ENABLED=0 GOOS=<t> golangci-lint run` exits 0 for linux and darwin.
+  For windows it exits 1 with `4 issues:` at `cleanup_windows.go:54:15`
+  G304, `cleanup_windows.go:123:16` SA1019, `replace.go:11:2` unused
+  `osRename`, and `replace_windows.go:16:2` unused `pendingBackup`.
