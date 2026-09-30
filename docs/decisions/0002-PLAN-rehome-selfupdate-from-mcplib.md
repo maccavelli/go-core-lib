@@ -442,3 +442,43 @@ Commit: `80820b8`.
   3. Both script steps in `ci.yml` set `shell: bash`. Their first Windows
      run is in Phase 6.
 * **Scope added to Phase 4.** None beyond the files already listed.
+
+Commit: `da7da95`.
+
+### Phase 5: documentation (2026-09-29)
+
+* `README.md`: the status (Go 1.27.1, the first release to be `v1.0.0`, not
+  yet tagged) and a package table. A "Self-update" section carries the
+  substance of `mcplib`'s: the bindings, the `User-Agent` and token
+  variables, and `ExitCode` (0 with no error, 10 when an update is
+  available, 1 otherwise). "Publishing releases" gives the workflow's
+  contract and a call example with no `bridge-release`. Also the "I want
+  to…" rows.
+* `docs/architecture.md`: the tree with the package, the release scripts and
+  the reusable workflow; the package table (26 non-test and 21 test files,
+  source `mcplib` `v1.6.0` `4e1f9a53e265`, the four differences); the
+  workflow's steps; three-target lint; the new CI steps; and "What is not
+  here" (the tag, consumer migrations, `docs/reports/`). This is the
+  provenance statement D1 points to.
+* `docs/guides/migrating-from-mcplib-selfupdate.md`: Go 1.27.1 first, the
+  import and `go get`, the `uses:` change with `bridge-release` deleted, and
+  checks. The `uses:` SHA stays a named placeholder (`<v1.0.0 commit SHA>`),
+  with the `git ls-remote` command that resolves it. Phase 6 fills it in.
+* `docs/README.md`: four new "I want to…" rows.
+* **Claims checked against the code before commit:** `cleanup_other.go` is
+  `//go:build !windows`. A declined apply returns a nil error, so
+  `ExitCode` is 0 for it (the first README draft said "current or applied"
+  and was corrected). The token order is `GH_TOKEN`, then `GITHUB_TOKEN`
+  (`github.go:102-105`).
+* `markdownlint-cli2` over `README.md`, `AGENTS.md`, `docs/README.md`,
+  `docs/architecture.md` and the guide: `0 issues`. The link resolver
+  (proven in 0001-PLAN Phase 3) over those files and every record:
+  `checked 31 relative links, 0 broken`. The identifier scan found no match.
+* **Whole-tree gates** before commit: `make test`, `vet`, `lint` (three
+  targets), `vuln` and `pre-add-check` all exit 0. `go mod tidy -diff`
+  exit 0, `go mod verify` `all modules verified`, `gofmt -l .` empty, the
+  three script tests exit 0, and `shellcheck scripts/*.sh` exit 0.
+
+This Phase 5 commit is the `v1.0.0` commit (MADR §8). Its SHA is recorded
+in Phase 6, which has not started: it waits for the owner's ask to push,
+then to tag.

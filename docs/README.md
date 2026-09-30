@@ -14,6 +14,10 @@
 | I want to… | Start here |
 | :--- | :--- |
 | see what is in this repository today | [architecture.md](architecture.md) |
+| move a program from `mcplib/selfupdate` to this module | [guides/migrating-from-mcplib-selfupdate.md](guides/migrating-from-mcplib-selfupdate.md) |
+| know why `selfupdate` moved here, and what changed on the way | [0002-MADR](decisions/0002-MADR-rehome-selfupdate-from-mcplib.md) |
+| know why `bridge-release` is gone | [0002-MADR, §3](decisions/0002-MADR-rehome-selfupdate-from-mcplib.md#3-what-changes-in-transit-and-nothing-else) |
+| know why lint runs three times | [0002-MADR, §5](decisions/0002-MADR-rehome-selfupdate-from-mcplib.md#5-lint-covers-every-target-the-code-builds-for) |
 | contribute: checks, records and commit rules | [AGENTS.md](../AGENTS.md) |
 | know what may be imported here, and what never may | [0001-MADR, §3](decisions/0001-MADR-scaffold-shared-go-library.md#3-toolchain-and-dependencies) |
 | know why CI and `make lint` fail until the first package lands | [0001-MADR, §6](decisions/0001-MADR-scaffold-shared-go-library.md#6-gates-are-not-taught-to-pass-on-nothing) |
