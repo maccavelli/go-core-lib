@@ -1090,3 +1090,50 @@ Commit: `14b40a8`.
     staging (this shell cannot create a symlink)": Git Bash's `ln -s`
     copies. The symlink case ran and passed on this host;
   * `overall=0`, `cleanup ok`.
+
+Commit: `d0902c4`.
+
+### Phase 6: CI and tooling (2026-09-30)
+
+**Changes** (`ci.yml`, and the `go-precheck.sh` install hint):
+
+* **D11.** `concurrency: {group: ci-${{ github.ref }}, cancel-in-progress:
+  true}`. The orphan GitHub App check suite is an installation setting,
+  reported to the owner in the hand-off; no repository change.
+* **D9.**
+  * Linux `go test -race -count=1 ./...`.
+  * `golangci-lint` is pinned at **v2.13.2** in `ci.yml` and in the
+    install hint. No `v2.13.1` remains outside the records.
+  * A Linux step runs `shellcheck scripts/*.sh`,
+    `npx --yes markdownlint-cli2@0.23.2` and
+    `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`.
+  * The contract step also runs `check-workflow-gh-repo_test.sh`, and
+    `check-workflow-expressions.sh` on both workflows, plus its test.
+    `ci.yml` itself has no `${{` in a `run:` block.
+
+**Local proof.**
+
+* Both workflows parse.
+* `actionlint` v1.7.12 on the repository: exit 0.
+* `markdownlint-cli2@0.23.2` via `npx`: `0 issues in 0 files` (6 files).
+* `check-workflow-expressions.sh .github/workflows/ci.yml`: ok.
+
+**Fail-first** for each new CI check, on a scratch copy with one planted
+defect:
+
+| Check | Planted | Result |
+|---|---|---|
+| `go test -race` | a goroutine and the test both write `n` | exit 1, `WARNING: DATA RACE` |
+| `shellcheck` | `echo $x` in a new script | exit 1, `SC2086` |
+| `markdownlint-cli2@0.23.2` | a `*` list item in `README.md` | exit 1, `MD004/ul-style` |
+| `actionlint` | `runs-on: ${{ matrix.nope }}` | exit 1, `property "nope" is not defined in object type {os: string}` |
+
+* The first actionlint run in the scratch copy printed no message. That
+  copy was not a git repository, so auto-discovery could not be trusted.
+  It was re-run with explicit file paths: the unmodified workflows exit 0,
+  and the planted one gives the failure above.
+* Because the push's own CI is what finally proves these steps run, that
+  run is recorded under 0002-PLAN Phase 6.
+
+**Gates.** `make pre-add-check`: `52 file(s) clean`. `shellcheck`: 0.
+Windows gate: `overall=0`, `cleanup ok`.
