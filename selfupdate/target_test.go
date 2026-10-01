@@ -67,7 +67,11 @@ func TestResolveTargetExtraRoot(t *testing.T) {
 func TestCanonicalizeRootRejectsFilesystemRoot(t *testing.T) {
 	root := "/"
 	if runtime.GOOS == "windows" {
-		root = os.Getenv("SystemDrive") + `\`
+		// The root of the drive the test's temporary directory is on. Not
+		// %SystemDrive%: an environment read is a gosec G703 taint source,
+		// which would surface at canonicalizeRoot's os.Lstat
+		// (0006-MADR-adopt-golangci-lint-v2-14.md).
+		root = filepath.VolumeName(t.TempDir()) + `\`
 	}
 	if _, err := canonicalizeRoot(root); err == nil {
 		t.Fatal("accepted filesystem root")

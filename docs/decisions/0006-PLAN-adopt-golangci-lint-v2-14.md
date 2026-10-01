@@ -88,3 +88,29 @@ to v2.14 too".
 
 The MADR (`accepted`) and this PLAN (`in-progress`) were written and
 indexed.
+
+### Step 2: the taint source (2026-10-01)
+
+**What changed.** In `TestCanonicalizeRootRejectsFilesystemRoot`, the
+Windows root is now `filepath.VolumeName(t.TempDir()) + "\"`, with a comment
+saying why it is not `%SystemDrive%`. The `os` import stays, because the
+file uses it elsewhere.
+
+**Proofs.**
+
+* **G703.**
+  * A clean clone of the parent commit, under v2.14.0, reported
+    `selfupdate/target.go:127:23: G703: Path traversal via taint analysis
+    (gosec)` on `linux`, `darwin` and `windows`.
+  * With this change, `make lint`'s three runs each report `0 issues`. That
+    is on the working tree, which also holds the paused 0005 Step 2 work.
+* **The test still guards the refusal.** With `isFilesystemRoot` returning
+  false, it fails with `target_test.go:77: accepted filesystem root`:
+  * locally, for `/`;
+  * on the Windows test host, for the new root.
+
+**Checks.**
+
+* `make pre-add-check` passed on the file, with v2.14.0.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, with the test passing.
