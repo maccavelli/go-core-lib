@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
@@ -626,6 +626,29 @@ it. Nothing else changes.
   `docs/architecture.md`, `AGENTS.md` and this PLAN resolves.
 * The Windows test host passed in Steps 2–4; Step 5 changed only
   documentation.
-* **Not yet:** CI on the pushed tree, with the `fuzz` step's four runs and the
-  differential (not skipped) in the Linux log. This PLAN stays
-  `in-progress` until then.
+* **CI on the pushed tree:** see the close-out below.
+
+### Close-out (2026-10-01)
+
+The owner pushed Steps 1–5. CI run `36888223078` on `13914db04ab6`
+concluded `success` on `ubuntu-24.04`, `macos-15` and `windows-2025`. The
+Linux job's `go test -race`, `fuzz` and API steps passed, and `fuzz corpus`
+was skipped, as it runs only on failure.
+
+* **The fuzz step.** The Linux log shows `go-fuzz_test: 12 passed, 0 failed`
+  and four 20 s runs, `(minimizing at most 5s)`, ending
+  `go-fuzz: 4 fuzz targets ran clean in ./selfupdate`. The last progress
+  lines:
+  * `FuzzParseSHA256SUMS`: 228,034 execs in 21 s;
+  * `FuzzGitHubReleaseJSON`: 213,445 in 20 s;
+  * `FuzzSanitize`: 116,347 in 21 s;
+  * `FuzzVersionPolicy`: 242,662 in 21 s.
+
+  That is about a quarter of the local rate, on a smaller runner.
+* **The differential.** The `go test -race` step runs without `-v`, so the
+  test's seed line is not printed. The step sets
+  `SELFUPDATE_REQUIRE_PYTHON=1`, under which a missing `python3` fails the
+  test rather than skipping it (Step 3's proof). The step passed on Linux
+  and macOS, so the differential ran and agreed there.
+
+Every acceptance criterion is met, so this PLAN is `complete`.

@@ -850,6 +850,13 @@ signature would add almost nothing today.
   test binary reports its version, H3 serves a "v2" build, and
   `Updater.Run` drives the real standalone installer while the old copy is
   running. Negative cases assert the target is byte-identical afterwards.
+  *(Amended 2026-10-01 by
+  [0004-PLAN-h4-running-copy-end-to-end.md](0004-PLAN-h4-running-copy-end-to-end.md),
+  D1: the test builds a small helper program twice, with its version
+  stamped by `-ldflags -X main.version=…`. The v1 build is copied to the
+  target and started, and H3 serves the v2 build. The version must be a
+  property of the bytes: the test binary takes its version from the
+  environment.)*
 * **H5.** Golden tests for `TextReporter` and `NewJSONReporter`, with an
   `-update` flag.
 * **H6.** Seams go behind `setSeam`, `time.Sleep` handshakes are replaced
