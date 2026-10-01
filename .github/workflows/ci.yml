@@ -44,6 +44,22 @@ jobs:
       - name: go test -shuffle
         if: runner.os == 'Linux'
         run: go test -shuffle=on -count=2 ./...
+      # Each fuzz target for 20 s; a failing input is kept as an artifact
+      # (0004-PLAN-h2-fuzzing-and-manifest-differential.md Step 4).
+      - name: fuzz
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./scripts/go-fuzz_test.sh
+          make fuzz
+      - name: fuzz corpus
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus
+          path: selfupdate/testdata/fuzz/
+          if-no-files-found: ignore
+          retention-days: 14
       # Targets the matrix does not run: a build-tag gap fails here
       # (0004-MADR H7).
       - name: cross go vet

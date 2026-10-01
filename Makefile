@@ -9,7 +9,7 @@ GOVULNCHECK   ?= $(or $(wildcard $(GOBIN)/govulncheck),$(GOPATH_BIN)/govulncheck
 GOTESTSUM     ?= $(or $(wildcard $(GOBIN)/gotestsum),$(GOPATH_BIN)/gotestsum,$(shell command -v gotestsum 2>/dev/null))
 FLEET_LINT_CFG := .golangci.yml
 
-.PHONY: all help test test-sum fmt vet lint tidy vuln apicheck pre-add-check
+.PHONY: all help test test-sum fmt vet lint tidy vuln apicheck fuzz pre-add-check
 
 all: help
 
@@ -61,6 +61,12 @@ vuln: ## Runs govulncheck (opt-in; requires govulncheck on PATH/GOBIN)
 BASE ?=
 apicheck: ## Fails on an incompatible exported API change (apidiff against the newest v1.* tag)
 	@./scripts/check-api-compat.sh $(BASE)
+
+# Fuzz each selfupdate fuzz target for FUZZTIME; go test -fuzz takes one
+# target per run (docs/decisions/0004-PLAN-h2-fuzzing-and-manifest-differential.md).
+FUZZTIME ?= 20s
+fuzz: ## Fuzzes every selfupdate fuzz target for FUZZTIME each (default 20s)
+	@./scripts/go-fuzz.sh -t $(FUZZTIME) ./selfupdate
 
 # The pre-add rule (AGENTS.md). scripts/go-precheck.sh is the one
 # implementation; the agent gate at `git commit` runs the same file.

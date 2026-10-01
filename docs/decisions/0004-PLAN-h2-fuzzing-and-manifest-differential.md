@@ -253,7 +253,8 @@ decided which parser is right.
 
 ### Step 4: the CI fuzz step (`scripts/go-fuzz.sh` (new), `scripts/go-fuzz_test.sh` (new), `Makefile`, `.github/workflows/ci.yml`)
 
-**The script.** `scripts/go-fuzz.sh [-t FUZZTIME] [-m MIN] PKG`:
+**The script.** `scripts/go-fuzz.sh [-t FUZZTIME] [-m MIN] PKG`
+*(D2: also `-z MINIMIZETIME`, default 5s, passed as `-fuzzminimizetime`)*:
 
 1. It lists the package's fuzz targets with
    `go test -list '^Fuzz' PKG`, keeping lines that start with `Fuzz`.
@@ -287,7 +288,8 @@ a temporary directory, and runs the script on each with `-t 2s`:
   `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1`, with
   `path: selfupdate/testdata/fuzz/`, `if-no-files-found: ignore` and
   `retention-days: 14`;
-* the "API compatibility" step also runs `./scripts/go-fuzz_test.sh`.
+* ~~the "API compatibility" step also runs `./scripts/go-fuzz_test.sh`~~
+  *(D3: the `fuzz` step runs it, before `make fuzz`)*.
 
 The time cost is about 4 × 20 s plus one instrumented build per target.
 
@@ -508,3 +510,85 @@ Two contrasts on the same copies:
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`. The differential ran there, not skipped:
   `N=5000 … accepted=1273 rejected=3727`, in 16 s under `-race`.
+
+### Step 4: the CI fuzz step (2026-10-01)
+
+**What changed.**
+
+* **`scripts/go-fuzz.sh`** (new):
+  `[-t FUZZTIME] [-z MINIMIZETIME] [-m MIN] PKG`.
+  * It lists the targets with `go test -list '^Fuzz'`, taking the status
+    before any filtering, and refuses fewer than `MIN`.
+  * Each target runs as
+    `go test -run '^$' -fuzz "^NAME$" -fuzztime T -fuzzminimizetime Z PKG`.
+    The first failure exits with `go test`'s status and names
+    `PKG/testdata/fuzz/NAME/`.
+  * A usage error exits 2. `MIN` must be at least 1, because bash 3.2 on
+    macOS treats an empty array under `set -u` as unbound.
+  * `GO` names the go command, the way the release-guard test injects `gh`,
+    because shell startup files here re-order `PATH`.
+* **`scripts/go-fuzz_test.sh`** (new) runs 12 checks on throwaway modules:
+  * two clean targets, both fuzzed;
+  * `-z` reaching `go test`, checked through a recording `GO`;
+  * too few targets, with the count;
+  * a target that fails on any input but its seed: the run fails, and Go
+    saves one input;
+  * four usage errors.
+* **`Makefile`.** `FUZZTIME ?= 20s`, and `fuzz` runs
+  `./scripts/go-fuzz.sh -t $(FUZZTIME) ./selfupdate`.
+* **`ci.yml`** (Linux):
+  * a `fuzz` step: `./scripts/go-fuzz_test.sh`, then `make fuzz`;
+  * a `fuzz corpus` step on `failure()`, which uploads
+    `selfupdate/testdata/fuzz/` with `actions/upload-artifact`
+    `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1`,
+    `if-no-files-found: ignore`, `retention-days: 14`.
+
+**Deviation D2 (2026-10-01): the minimization cap.**
+
+* **Found.** The first full `make fuzz`, written as the PLAN says, passed,
+  but three targets sat at `0/sec` for most of their 20 s:
+  * `FuzzParseSHA256SUMS` stopped at 139,954 execs from 6 s to 21 s;
+  * `FuzzGitHubReleaseJSON` stopped at 389,938 from 15 s;
+  * `FuzzSanitize` stopped at 72,223 from 3 s to 18 s.
+* **The cause.** With one worker, `FuzzParseSHA256SUMS` ran 177 execs and
+  then stalled for 18 s. `GODEBUG=fuzzdebug=1` showed each new interesting
+  input queued for minimization, which `-fuzzminimizetime` lets run for 60 s
+  by default. With the cap at 1 s and at 5 s, two 20 s runs each showed no
+  stall:
+  * `FuzzParseSHA256SUMS`: 1,239,436 and 1,436,648 execs;
+  * `FuzzSanitize`: 1,168,358 and 1,155,846 execs.
+* **Decision.** The owner chose "Cap at 5s, -z flag": `-z MINIMIZETIME`,
+  default `5s`. A crasher is still minimized, for up to 5 s, and the test
+  checks that the flag reaches every fuzz run.
+* **After the fix,** the full `make fuzz` (four targets, 20 s each) showed
+  one stalled tick in the whole run:
+  * `FuzzParseSHA256SUMS`: 957,408 execs;
+  * `FuzzGitHubReleaseJSON`: 632,295;
+  * `FuzzSanitize`: 871,612;
+  * `FuzzVersionPolicy`: 1,054,742.
+* **MADR.** No change: amendment C2 already makes the script the mechanism.
+
+**Deviation D3 (2026-10-01): where the script's test runs.** The PLAN put
+`go-fuzz_test.sh` in the "API compatibility" step. It runs in the `fuzz`
+step instead, before `make fuzz`, so the step tests the gate and then uses
+it. Nothing else changes.
+
+**Proofs** (scratch copies):
+
+| Mutation | Failure |
+| :--- | :--- |
+| the script ignores `go test`'s status | `FAIL a failing target fails the run: want nonzero, got 0` |
+| the floor check removed | `FAIL too few targets is refused: want 1, got 0` |
+| `-z` is not passed to `go test` | `FAIL -z reaches each fuzz run: want 2, got 0` |
+| the target list is always empty | `FAIL clean targets pass: want 0, got 1` |
+| a planted `t.Fatalf` in `FuzzSanitize` for inputs over 64 bytes | `make fuzz` exits 2. Go reports `planted: 65 bytes` and `Failing input written to testdata/fuzz/FuzzSanitize/…`, and the script names that directory. One input was saved there. |
+
+**Checks.**
+
+* `shellcheck scripts/*.sh`, `actionlint`, and `check-workflows.sh`, both on
+  its default workflow and with `--rule expressions` on `ci.yml`: all clean.
+* `go-fuzz_test.sh`: 12 passed.
+* `make fuzz` passed, and wrote no corpus to the tree.
+* The Windows test host passed `go vet ./...`,
+  `go test -race -count=1 ./...`, the verifier's shell test and
+  `go-fuzz_test.sh` (12 passed).
