@@ -2,12 +2,15 @@ package selfupdate_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
 )
 
 func ExampleNew_standalone() {
@@ -113,4 +116,155 @@ func ExampleExitCode() {
 	// 0
 	// 10
 	// 1
+}
+
+// exampleChecker answers from an in-memory release, so the examples below
+// run offline. A program passes its GitHubSource instead.
+func exampleChecker() (*selfupdate.Checker, *selfupdatetest.FakeSource) {
+	plats := []selfupdate.Platform{{OS: "linux", Arch: "amd64"}}
+	src := selfupdatetest.NewFakeSource("v1.1.0", selfupdatetest.NewRelease("demo", "v1.1.0", plats,
+		func(selfupdate.Platform) []byte { return []byte("demo v1.1.0\n") }))
+	selector, err := selfupdate.NewExactAssetSelector(plats)
+	if err != nil {
+		panic(err)
+	}
+	checker, err := selfupdate.NewChecker(selfupdate.CheckerConfig{
+		Source: src, Versions: selfupdate.NewStrictVersionPolicy(), Assets: selector,
+		Limits: selfupdate.DefaultLimits(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return checker, src
+}
+
+// A startup banner: is there an update, and to what? Check resolves no
+// target, takes no lock and downloads no asset body.
+func ExampleNewChecker() {
+	checker, _ := exampleChecker()
+	avail, err := checker.Check(context.Background(), selfupdate.CheckRequest{
+		Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: selfupdate.ReleaseBuild,
+		Platform: selfupdate.Platform{OS: "linux", Arch: "amd64"},
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if avail.Available {
+		fmt.Printf("%s %s is available (you have %s): run 'demo update'\n",
+			avail.Product, avail.TargetVersion, avail.CurrentVersion)
+	}
+	// Output: demo v1.1.0 is available (you have v1.0.0): run 'demo update'
+}
+
+// CheckCached keeps the last answer on disk, so a program that starts often
+// asks the network at most once per maxAge.
+func ExampleChecker_CheckCached() {
+	dir, err := os.MkdirTemp("", "selfupdate-example-")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	store, err := selfupdate.NewFileCheckStore(filepath.Join(dir, "update-check.json"))
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	checker, src := exampleChecker()
+	req := selfupdate.CheckRequest{
+		Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: selfupdate.ReleaseBuild,
+		Platform: selfupdate.Platform{OS: "linux", Arch: "amd64"},
+	}
+	for range 2 {
+		rec, err := checker.CheckCached(context.Background(), req, store, 24*time.Hour)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(rec.Availability.TargetVersion, rec.Availability.Available)
+	}
+	fmt.Println("network calls:", len(src.Calls()))
+	// Output:
+	// v1.1.0 true
+	// v1.1.0 true
+	// network calls: 1
+}
+
+// JSON Lines on stdout for a front end or a script; human text goes to
+// stderr.
+func ExampleNewJSONReporter() {
+	reporter := selfupdate.NewJSONReporter(os.Stdout)
+	_ = reporter.Report(context.Background(), selfupdate.Event{
+		Kind: selfupdate.EventProgress, Product: "demo", Target: "v1.1.0",
+		Asset: "demo-linux-amd64", Bytes: 512, Total: 2048,
+	})
+	// Output: {"kind":"progress","product":"demo","target":"v1.1.0","asset":"demo-linux-amd64","bytes":512,"total":2048}
+}
+
+// One run, two audiences: every event goes to each reporter in order.
+func ExampleMultiReporter() {
+	reporter := selfupdate.MultiReporter(selfupdate.NewTextReporter(os.Stdout), selfupdate.NewJSONReporter(os.Stdout))
+	_ = reporter.Report(context.Background(), selfupdate.Event{
+		Kind: selfupdate.EventVerified, Product: "demo", Target: "v1.1.0", Asset: "demo-linux-amd64",
+	})
+	// Output:
+	// selfupdate: verified product=demo target=v1.1.0 asset=demo-linux-amd64
+	// {"kind":"verified","product":"demo","target":"v1.1.0","asset":"demo-linux-amd64"}
+}
+
+// keychainCredential stands in for a program's own store, such as an OS
+// keychain.
+type keychainCredential struct{}
+
+func (keychainCredential) Credential(context.Context, selfupdate.CredentialRequest) (selfupdate.Credential, error) {
+	return selfupdate.Credential{Value: []byte("example-token"), Source: "keychain"}, nil
+}
+
+// The first provider that has a credential wins; ErrNoCredential passes to
+// the next. Pass the chain as GitHubOptions.Credentials.
+func ExampleChainCredentials() {
+	chain := selfupdate.ChainCredentials(
+		selfupdate.EnvCredential("", "DEMO_EXAMPLE_UNSET_TOKEN"),
+		keychainCredential{},
+	)
+	c, err := chain.Credential(context.Background(), selfupdate.CredentialRequest{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("from", c.Source)
+	// Output: from keychain
+}
+
+// NewManagedInstallerFor drives any Installer whose sessions implement
+// TwoPhaseSession; the standalone installer's do.
+func ExampleNewManagedInstallerFor() {
+	inner, err := selfupdate.NewStandaloneInstaller(selfupdate.InstallOptions{KeepPrevious: true})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	managed, err := selfupdate.NewManagedInstallerFor(inner, exampleService{}, exampleDefinition{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Printf("%T\n", managed)
+	// Output: *selfupdate.ManagedInstaller
+}
+
+// Document is the stable JSON form of a Result, for a --json flag.
+func ExampleResult_Document() {
+	res := selfupdate.Result{
+		Product: "demo", CurrentVersion: "v1.0.0", TargetVersion: "v1.1.0",
+		AssetName: "demo-linux-amd64", Operation: selfupdate.OperationUpgrade, DryRun: true,
+	}
+	out, err := json.Marshal(res.Document())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(string(out))
+	// Output: {"schema_version":1,"product":"demo","current_version":"v1.0.0","target_version":"v1.1.0","asset_name":"demo-linux-amd64","operation":"upgrade","checked":false,"applied":false,"declined":false,"dry_run":true,"service_installed":false,"service_was_running":false}
 }

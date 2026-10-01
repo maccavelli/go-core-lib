@@ -39,10 +39,12 @@ func (r Result) Document() ResultDocument {
 		Checked:           r.Checked,
 		Applied:           r.Applied,
 		Declined:          r.Declined,
+		DryRun:            r.DryRun,
 		ReleaseDigest:     r.ReleaseDigest,
 		InstalledDigest:   r.InstalledDigest,
 		ServiceInstalled:  r.ServiceInstalled,
 		ServiceWasRunning: r.ServiceWasRunning,
 		PendingBackup:     r.PendingBackup,
+		Previous:          r.Previous,
 	}
 }

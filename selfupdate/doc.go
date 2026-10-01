@@ -6,11 +6,72 @@
 // installer. The package does not import a CLI framework, UI toolkit, or
 // service manager. Consumers bind flags, streams, and lifecycle adapters.
 //
+// # Updating
+//
+// New composes an Updater from explicit parts, and Updater.Run does one
+// request: resolve the target, discover and select the release, confirm,
+// download to session-owned staging, verify, optionally transform and probe,
+// and install. Request.CheckOnly stops after selection and reports
+// ErrUpdateAvailable; Request.DryRun runs everything short of the install,
+// without prompting, and leaves the target untouched.
+//
+// # Asking without installing
+//
+// NewChecker, or Updater.Checker, answers "is there an update?" as an
+// Availability value. It needs no Installer, Reporter or Confirmer, and
+// downloads no asset body. Checker.CheckCached keeps the answer in a
+// CheckStore, such as NewFileCheckStore, so a program that starts often asks
+// the network at most once per interval and backs off after a rate limit.
+//
+// # Events and output
+//
+// A Reporter receives one Event per stage. NewTextReporter writes plain
+// lines, NewJSONReporter writes JSON Lines, and MultiReporter fans out to
+// several. EventProgress is opt-in: Config.ProgressInterval is zero by
+// default, which reports none, and the text reporter skips it. The outcome
+// events EventDeclined, EventFailed and EventRolledBack are advisory: a
+// reporter error there never changes the run's result. Result.Document is the
+// stable JSON form of a Result. A program keeps its stdout for structured
+// output and writes human text to stderr.
+//
+// # Credentials
+//
+// GitHubOptions.Token, then GitHubOptions.Credentials, then GH_TOKEN and
+// GITHUB_TOKEN supply the API credential. ChainCredentials and EnvCredential
+// compose providers; a credential is asked for lazily, sent only to the API
+// origin, and stripped from any redirect to another origin. A
+// CredentialObserver learns when one was accepted.
+//
+// # Integrity
+//
 // Baseline verification proves release-asset integrity: HTTPS GitHub
 // metadata, the GitHub asset digest when present, and the exact SHA256SUMS
-// entry. It does not prove publisher signature authenticity. Additional
-// Verifier implementations may be composed after that integrity check
-// without changing discovery, staging, or installation APIs.
+// entry. It does not prove publisher signature authenticity, and no
+// publisher signature is verified by default. Config.ManifestVerifiers run
+// on the downloaded SHA256SUMS before any binary byte is fetched; that is the
+// hook for a signature over the manifest. Config.Verifiers run on the staged
+// binary after the integrity check, and NewImageVerifier checks that it is an
+// executable for the selected platform.
+//
+// # Probes
+//
+// Config.Probes run the staged binary, made executable for the purpose,
+// before anything is replaced. InstallOptions.PostInstall runs the installed
+// binary before the replacement is committed, and a failure rolls it back.
+// NewVersionProber checks that the binary prints the release's version.
+//
+// # Installers
+//
+// NewStandaloneInstaller replaces the binary under a per-target lock.
+// InstallOptions.KeepPrevious keeps the replaced binary at .<base>.previous,
+// and StandaloneInstaller.CleanupPending, called at startup, processes what
+// an earlier update left behind. NewManagedInstaller adds service lifecycle
+// and definition reconciliation; NewManagedInstallerFor does the same for any
+// Installer whose sessions implement TwoPhaseSession. A custom session used
+// with a Transformer must implement StagingOwner.
+//
+// The selfupdatetest package provides test doubles: release fixtures, a fake
+// source, reporter and confirmer, and a fake GitHub API.
 //
 // Consumers publish through the reusable workflow
 // .github/workflows/publish-selfupdate-release.yml at the exact go-core-lib

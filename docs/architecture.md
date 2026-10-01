@@ -13,8 +13,8 @@ workflow that programs using `selfupdate` publish their releases through.
 
 The module requires Go 1.27.1 and three modules: `golang.org/x/mod v0.40.0`,
 `golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`. Its current
-release is `v1.0.0`, an annotated tag on commit
-`b36ca4494b86e52cf1b4a315554603f1c6ee3a21`.
+release is `v1.0.1`, an annotated tag on commit
+`2ec2c6860ce92003e1a66024ce64503280da3f8d`.
 
 ## Tree
 
@@ -36,15 +36,19 @@ scripts/
   refuse-existing-release.sh       refuses a tag that already has a release
   check-workflows.sh        parses workflows as YAML: no ${{ }} in a run script,
                             and every repository-scoped gh step sets GH_REPO
+  check-api-compat.sh       fails on an incompatible exported API change
+                            against the newest v1.* tag (apidiff)
   requirements-workflow-check.txt  hash-pinned PyYAML for check-workflows.sh
   *_test.sh                 offline tests for each of those scripts
 .claude/ .grok/ .opencode/  per-agent pointers to AGENTS.md
 opencode.json
 selfupdate/                 the self-update package
+  selfupdatetest/           its exported test doubles
 docs/
   README.md                 record index and the "I want to…" table
   architecture.md           this file
   decisions/                MADR and PLAN records
+  reports/                  REPORT records
   guides/                   how-to guides
 ```
 
@@ -52,16 +56,39 @@ docs/
 
 | Directory | Package | Non-test files | Test files | Non-standard imports |
 | :--- | :--- | :--- | :--- | :--- |
-| `selfupdate/` | `selfupdate` | 27 | 31, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}` and 23 `testdata/manifest-parity/` cases | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `selfupdate/` | `selfupdate` | 36 | 45, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `selfupdate/selfupdatetest/` | `selfupdatetest` | 2 | 1 | none (`selfupdate` itself) |
 
-- `selfupdate` is `mcplib` `v1.6.0`'s `selfupdate` (commit `4e1f9a53e265`),
-  with the same exported API. It differs from that source in:
+- `selfupdate` began as `mcplib` `v1.6.0`'s `selfupdate` (commit
+  `4e1f9a53e265`), and its `v1.0.x` API is that package's. It differs from
+  that source in:
   - its import path and package comment;
   - four Windows-only lint fixes;
   - the fixes of
     [0003-MADR](decisions/0003-MADR-remediate-debugging-pass-findings.md)
     and of [0004-MADR](decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md)
-    Phase 0.
+    Phase 0;
+  - the additive Phase 1 API of that MADR, which `make apicheck` keeps
+    compatible with `v1.0.1`.
+- The Phase 1 API, by file:
+  - **asking without installing:** `checker.go` (`Checker`, shared with
+    `Run`'s discovery) and `checkcache.go` (`CheckCached`, `CheckStore`,
+    `NewFileCheckStore`);
+  - **output:** `jsonreporter.go`, `document.go` (`Result.Document`),
+    `adapters.go` (the `…Func` adapters, `DiscardReporter`,
+    `MultiReporter`, `NonInteractiveConfirmer`), and the progress and
+    outcome events in `updater.go`;
+  - **credentials:** `credentials.go`, with the lazy credential chain and
+    its cross-origin stripping in `github.go`;
+  - **integrity and probes:** `manifestverify.go`, `imageverify.go`
+    (ELF, Mach-O, PE), and `probe.go` (staged and post-install probes);
+  - **installers:** `TwoPhaseSession`, `StagingOwner` and
+    `NewManagedInstallerFor` (`types.go`, `session.go`, `managed.go`), and
+    `DryRun`, `KeepPrevious` and `CleanupPending` (`updater.go`,
+    `session.go`, `standalone.go`).
+- `selfupdatetest` provides `NewRelease`, `FakeSource`,
+  `RecordingReporter`, `ScriptedConfirmer`, and `GitHubServer`, a fake
+  GitHub API on one TLS origin whose asset requests redirect to a second.
 - The coordinator (`updater.go`) owns the order of every step. It validates
   the selected binary and manifest itself, and parses `SHA256SUMS` before any
   staging. It pins an exact `--version`, and closes the session before
@@ -118,7 +145,10 @@ interpolated into shell.
 ## Tooling
 
 - **`make` targets:** `test`, `test-sum`, `fmt`, `vet`, `lint`, `tidy`,
-  `vuln`, `pre-add-check`, `help`.
+  `vuln`, `apicheck`, `pre-add-check`, `help`.
+- **`make apicheck`** runs `scripts/check-api-compat.sh`: the pinned
+  `apidiff` compares the working tree with the newest `v1.*` tag (or
+  `BASE=`), and any incompatible change fails it.
 - **`make lint`** runs `golangci-lint run -c .golangci.yml ./...` three
   times: `GOOS=linux`, `darwin` and `windows`, each with `CGO_ENABLED=0`.
 - **`scripts/go-precheck.sh`** runs `gofmt` on the given Go files, the same
@@ -131,12 +161,16 @@ interpolated into shell.
 - **CI** (`.github/workflows/ci.yml`) runs on Linux, macOS and Windows, with
   the Go version read from `go.mod`.
   - **Every OS:** `go test`, plus, under bash, the refuse-existing-release
-    test, both workflow checkers and their tests.
-  - **Linux also:** `go test -race`, `go vet`, `gofmt`, `go mod tidy -diff`,
-    `make lint` (golangci-lint v2.13.2), `govulncheck` v1.7.0, `shellcheck`
-    v0.11.0 (the latest release, pinned by SHA-256 and first on `PATH`, so
-    actionlint's embedded checks use it too), `markdownlint-cli2` 0.23.2,
-    `actionlint` v1.7.12, and the verifier's fixture test.
+    test.
+  - **Linux and macOS:** `go test -race`.
+  - **Linux also:** a full-history checkout; `go test -shuffle=on -count=2`;
+    `go vet` for `freebsd/amd64`, `openbsd/amd64` and `linux/386`;
+    `go vet`, `gofmt`, `go mod tidy -diff`, `make lint` (golangci-lint
+    v2.13.2); `make apicheck` and the gate's own test; `govulncheck` v1.7.0;
+    `shellcheck` v0.11.0 (the latest release, pinned by SHA-256 and first
+    on `PATH`, so actionlint's embedded checks use it too),
+    `markdownlint-cli2` 0.23.2 and `actionlint` v1.7.12; the verifier's
+    fixture test; and the workflow checker and its test.
   - One run per ref (`concurrency`, cancel in progress). Actions are pinned
     to commit SHAs.
 
@@ -144,4 +178,5 @@ interpolated into shell.
 
 - **Any consumer's migration,** and `mcplib`'s deprecation of its own copy.
   Each is recorded in that repository.
-- **`docs/reports/`,** which is created with its first report.
+- **Release signing.** No publisher signature is verified; the
+  `ManifestVerifier` hook is where one would be.

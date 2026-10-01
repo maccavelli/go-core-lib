@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -370,5 +371,49 @@ func TestResultDocumentJSON(t *testing.T) {
 		`"service_installed":false,"service_was_running":false}`
 	if string(got) != want {
 		t.Fatalf("document:\n%s\nwant:\n%s", got, want)
+	}
+
+	// The Step 10 fields (0004-PLAN-v1-1-0-core-api.md Step 13, D5).
+	res = Result{Product: "demo", CurrentVersion: "v1.0.0", Operation: OperationUpgrade, Applied: true, DryRun: true,
+		Previous: "/opt/demo/.demo.previous"}
+	if got, err = json.Marshal(res.Document()); err != nil {
+		t.Fatal(err)
+	}
+	want = `{"schema_version":1,"product":"demo","current_version":"v1.0.0","operation":"upgrade",` +
+		`"checked":false,"applied":true,"declined":false,"dry_run":true,` +
+		`"service_installed":false,"service_was_running":false,"previous":"/opt/demo/.demo.previous"}`
+	if string(got) != want {
+		t.Fatalf("document:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestResultDocumentCoversEveryField: a Result with every field set gives
+// a document with every field set, so a field added to Result cannot be
+// left out of Document unnoticed (0004-PLAN-v1-1-0-core-api.md Step 13,
+// D5).
+func TestResultDocumentCoversEveryField(t *testing.T) {
+	var res Result
+	rv := reflect.ValueOf(&res).Elem()
+	for i := range rv.NumField() {
+		f := rv.Field(i)
+		switch f.Kind() {
+		case reflect.String:
+			f.SetString("x")
+		case reflect.Bool:
+			f.SetBool(true)
+		case reflect.Uint8:
+			f.SetUint(uint64(OperationUpgrade))
+		default:
+			t.Fatalf("Result.%s has kind %s; extend this test", rv.Type().Field(i).Name, f.Kind())
+		}
+	}
+	if n, d := rv.NumField(), reflect.TypeFor[ResultDocument]().NumField(); d != n+1 {
+		t.Fatalf("ResultDocument has %d fields, want Result's %d plus schema_version", d, n)
+	}
+	doc := reflect.ValueOf(res.Document())
+	for i := range doc.NumField() {
+		if doc.Field(i).IsZero() {
+			t.Errorf("Document leaves ResultDocument.%s unset", doc.Type().Field(i).Name)
+		}
 	}
 }

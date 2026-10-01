@@ -1,0 +1,162 @@
+# Extending `selfupdate`
+
+For a program built on `github.com/maccavelli/go-core-lib/selfupdate` that
+needs more than the standalone default: a banner instead of an update, a
+front end that reads JSON, its own credential store, an extra check before
+install, or its own installer. Every section names one seam, what the package
+does around it, and a runnable pointer: an `Example` you can read with
+`go doc`, or a test in `selfupdate/`.
+
+Why each seam exists is in
+[0004-MADR](../decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md);
+what `v1.1.0` added, and the one behaviour change that can need code, are in
+the release notes of
+[0004-PLAN-v1-1-0-core-api.md](../decisions/0004-PLAN-v1-1-0-core-api.md#release-notes-for-v110).
+
+## Show an update banner
+
+`NewChecker` (or `Updater.Checker`, which shares the Updater's parts) answers
+"is there an update?" as an `Availability`. It resolves no target, takes no
+lock, prompts nobody and downloads no asset body, so it is safe on every
+start.
+
+For a check on every start, use `Checker.CheckCached` with
+`NewFileCheckStore` under `os.UserCacheDir`. It answers from the file while
+the record is younger than `maxAge`. After a rate limit it returns
+`ErrCheckDeferred` and the saved answer until the limit has passed, without
+touching the network.
+
+- `ExampleNewChecker`, `ExampleChecker_CheckCached`
+- `selfupdate/checker_test.go`, `selfupdate/checkcache_test.go`
+
+## Read JSON output
+
+`NewJSONReporter` writes one JSON object per event (JSON Lines), with the keys
+`kind`, `product`, `current`, `target`, `asset`, `bytes`, `total` and
+`detail`, in that order. `Result.Document` is the stable JSON form of the
+final `Result`, with `schema_version` 1.
+
+Keep stdout for the JSON, and write human text to stderr. `MultiReporter`
+sends each event to several reporters in order: `NewTextReporter(os.Stderr)`
+plus `NewJSONReporter(os.Stdout)` is the usual pair.
+
+Byte progress is opt-in. Set `Config.ProgressInterval` to the minimum gap
+between `EventProgress` events; zero reports none. The text reporter skips
+progress events either way.
+
+- `ExampleNewJSONReporter`, `ExampleMultiReporter`, `ExampleResult_Document`
+- `selfupdate/testdata/golden/`: the exact text and JSON Lines output of six
+  whole runs
+
+## Plug in a credential
+
+`GitHubOptions.Credentials` takes a `CredentialProvider`. It is asked lazily,
+on the first API request, after `GitHubOptions.Token` and before `GH_TOKEN`
+and `GITHUB_TOKEN`. `ChainCredentials` asks providers in order, and
+`ErrNoCredential` passes to the next. `EnvCredential` reads named variables.
+
+- An empty `Credential.Header` sends `Authorization: Bearer <Value>`;
+  otherwise `Header: Value` is sent as given.
+- The credential goes only to the API origin. It is removed from a redirect
+  to any other origin, such as GitHub's download host.
+- On a 401 the provider is asked once more, with `CredentialRequest.Cause`
+  set.
+- `GitHubOptions.Observer` is told once when a credential was accepted. That
+  is the moment to save a credential the user just typed.
+
+Pointers:
+
+- `ExampleChainCredentials`
+- `selfupdate/credentials_test.go`
+- `selfupdate/e2e_github_test.go`: no `Authorization` reaches the download
+  origin
+
+## Verify a signature later
+
+No publisher signature is verified by default. Two hooks run inside the
+update, and both make the run fail with `ErrIntegrity`:
+
+- **`Config.ManifestVerifiers`** run on the downloaded `SHA256SUMS`, before
+  any binary byte is fetched. A signature over the manifest belongs here. The
+  verifier can read a sibling asset, such as `SHA256SUMS.sig`, through
+  `ManifestVerification.OpenAsset`.
+- **`Config.Verifiers`** run on the staged binary after the built-in checks.
+  `NewImageVerifier` is one: the binary must be an executable for the selected
+  platform (ELF, Mach-O thin or fat, or PE).
+
+How signing would be added, and why it is not yet, is in
+[0004-REPORT](../reports/0004-REPORT-release-signing-research.md).
+
+- `selfupdate/manifestverify_test.go`, `selfupdate/imageverify_test.go`
+
+## Probe the new binary
+
+`Config.Probes` run the staged binary before anything is replaced. On
+Windows the staging file is named `.exe`, and elsewhere it is made executable
+first. `InstallOptions.PostInstall` runs the installed binary before the
+replacement is committed, and rolls it back on failure.
+`NewVersionProber(args, want, timeout)` runs the binary with `args` and
+requires its stdout to contain the release's version.
+
+A `Transformer`, such as a re-signing step, runs before the probes, so the
+probes see the bytes that will be installed.
+
+- `selfupdate/probe_test.go`
+
+## Rehearse without installing
+
+`Request.DryRun` does everything short of the install: download, verify,
+transform and probe. It asks nobody, then discards the staging file. The
+`Result` has `DryRun` set and both digests.
+
+- `selfupdate/lifecycle_test.go`, `selfupdate/testdata/golden/text-dry-run.golden`
+
+## Keep the previous binary
+
+`InstallOptions.KeepPrevious` renames the replaced binary to `.<base>.previous`
+beside the target at commit, over any older one, and reports it in
+`Result.Previous`. On Windows this works while the old image is still
+running. `StandaloneInstaller.CleanupPending`, called at startup, finishes
+what an earlier update left behind. An `ErrConcurrentUpdate` from it means
+another update holds the lock, which is benign.
+
+- `selfupdate/lifecycle_test.go`, `selfupdate/lifecycle_windows_test.go`
+
+## Write your own installer
+
+`Installer` and `InstallSession` are the whole contract for a single-step
+install.
+
+- **Under a service manager:** to run under `NewManagedInstallerFor`, the
+  session must also implement `TwoPhaseSession`:
+  - `Apply` makes the replacement live and keeps a backup;
+  - `Commit` and `Rollback` finish it once the service has been reconciled,
+    restarted and checked;
+  - `AppliedReplacement.State` carries your session's private state from
+    `Apply` to `Commit` or `Rollback`.
+- **With a `Transformer`:** the session must implement `StagingOwner`, so
+  the transformed staging file can be proven to be yours. A session without
+  it owns nothing, and the run stops before install.
+
+Pointers:
+
+- `ExampleNewManagedInstallerFor`, `ExampleNewManagedInstaller`
+- `selfupdate/twophase_test.go`: a custom session driven by the managed
+  installer, in order
+
+## Test a program that self-updates
+
+The `selfupdate/selfupdatetest` package provides:
+
+- `NewRelease`, which builds a release with matching `SHA256SUMS`;
+- `FakeSource`;
+- `RecordingReporter`;
+- `ScriptedConfirmer`;
+- `GitHubServer`, a fake GitHub API on one TLS origin whose asset requests
+  redirect to a second. It can rate-limit and truncate, and logs every request
+  with whether it carried `Authorization`.
+
+Pointers:
+
+- `selfupdate/selfupdatetest/selfupdatetest_test.go`
+- `selfupdate/e2e_github_test.go`, `selfupdate/golden_test.go`

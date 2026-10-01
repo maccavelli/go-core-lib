@@ -1953,6 +1953,10 @@ On the Windows host, two more:
   each provide `plantPendingCleanup`, and the Windows file carries the
   running-image test. They are test files only, and no product file was
   added.
+
+*(2026-09-30, found in Step 13, deviation D5: this step added
+`Result.DryRun` and `Result.Previous` without mapping them in
+`Result.Document`. Step 13 fixed it.)*
 * **MADR.** No MADR change: it makes no claim about renaming on Windows.
 
 **Checks.**
@@ -2146,3 +2150,236 @@ nothing else, including `TwoPhaseSession`, `NewChecker`,
   the first push after approval, which is the owner's.
 
 **Checks.** No Go file changed in this step. No deviation.
+
+### Step 13: documentation and close-out (2026-09-30)
+
+**What changed.**
+
+* **`selfupdate/doc.go`** has sections for updating, asking without
+  installing, events and output, credentials, integrity, probes and
+  installers. It keeps the statement that no publisher signature is verified
+  by default, and names `Config.ManifestVerifiers` as the hook for one.
+* **`selfupdate/example_test.go`** gains the PLAN's seven runnable examples,
+  all offline through `selfupdatetest.FakeSource` and checked by
+  `// Output:`:
+  * `ExampleNewChecker`;
+  * `ExampleChecker_CheckCached`, which shows that the second call does not
+    reach the source;
+  * `ExampleNewJSONReporter`;
+  * `ExampleMultiReporter`;
+  * `ExampleChainCredentials`;
+  * `ExampleNewManagedInstallerFor`;
+  * `ExampleResult_Document`.
+* **`docs/guides/extending-selfupdate.md`** (new) has one section per seam,
+  each with runnable pointers. Beyond the PLAN's five, it has sections for
+  dry run, keep-previous, custom installers and `selfupdatetest`.
+* **`docs/README.md`** gains the PLAN's five "I want to…" rows, and one
+  more for a custom installer or testing.
+* **`docs/architecture.md`** records:
+  * the Phase 1 files by concern, `selfupdatetest`, the gate, the new
+    `make` target and the CI steps;
+  * the file counts: 36 and 45 in `selfupdate`, 2 and 1 in
+    `selfupdatetest`.
+
+  It also corrects three stale facts. It said the current release was
+  `v1.0.0`, which is now `v1.0.1` at `2ec2c6860ce9`. It said
+  `docs/reports/` did not exist. And it listed the workflow checker under
+  every OS, when CI runs it on Linux only.
+
+**Deviation D5 (2026-09-30): `Result.Document` dropped `DryRun` and `Previous`.**
+
+* **Found.** `ExampleResult_Document` failed: `got … "dry_run":false …`,
+  `want … "dry_run":true …`.
+  * Step 5 had added `dry_run` and `previous` to `ResultDocument`. Step 10
+    added the matching `Result` fields, but never mapped them in
+    `Document`.
+  * So a program's `--json` output would always have said
+    `"dry_run": false` and never named the kept binary.
+  * `TestResultDocumentJSON` set neither field.
+* **Decision.** The owner chose to fix it in this step. That adds
+  `selfupdate/document.go` and `selfupdate/events_test.go` to its scope.
+  * `Document` maps both fields.
+  * `TestResultDocumentJSON` gains a case with both set.
+  * The new `TestResultDocumentCoversEveryField` sets every `Result` field
+    by reflection and fails if any `ResultDocument` field is left unset. So
+    a field added to `Result` later cannot be missed again; an unhandled
+    field kind fails the test rather than passing.
+  * Step 10's record carries a note.
+* **MADR.** No MADR change: amendment A5 already lists both fields.
+
+**Mutation proofs.** Five mutations, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `Document` drops `DryRun` | `TestResultDocumentJSON`: `document: …` |
+| `Document` drops `Previous` | `TestResultDocumentJSON`: `document: …` |
+| `Document` drops `PendingBackup`, a field the old test never set | `Document leaves ResultDocument.PendingBackup unset` |
+| `Document` drops `DryRun`, run against the example | `ExampleResult_Document` |
+| the example's `CheckCached` with a zero `maxAge` | `ExampleChecker_CheckCached` (`network calls: 2`) |
+
+**Links.** Nothing validates links in guides and READMEs, so a throwaway
+resolver checked every relative link and `#anchor` in `docs/README.md`,
+`docs/architecture.md` and the guide.
+
+* It reported both of two planted bad links: a missing file and a missing
+  anchor.
+* Before this record existed it reported exactly one real gap: the guide's
+  link to the release notes below, which this record creates.
+
+**Verification (the PLAN's list).**
+
+* `make pre-add-check` passed on the four Go files, and `make lint` passed
+  for all three targets.
+* `go test -race -count=3 ./...` and `go test -shuffle=on -count=2 ./...`
+  passed.
+* `make vuln`: `No vulnerabilities found.`
+* `go mod tidy -diff` is clean. `git diff v1.0.1 -- go.mod go.sum` is empty,
+  so no requirement changed.
+* `make apicheck`: `check-api-compat: compatible with v1.0.1`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, including every example.
+* **Not yet:** CI on the pushed tree. This PLAN stays `in-progress` until it
+  is green on all three operating systems, including the new steps (Step 12
+  and rule 6 of this step).
+
+**`apidiff -m` against `v1.0.1` (all changes).** It reports 70 changes, all
+of them compatible:
+
+```text
+- ./selfupdate.(*StandaloneInstaller).CleanupPending: added
+- ./selfupdate.(*Updater).Checker: added
+- ./selfupdate.AppliedReplacement: added
+- ./selfupdate.AssetStateUploaded: added
+- ./selfupdate.Availability: added
+- ./selfupdate.ChainCredentials: added
+- ./selfupdate.CheckRecord: added
+- ./selfupdate.CheckRequest: added
+- ./selfupdate.CheckStore: added
+- ./selfupdate.Checker: added
+- ./selfupdate.CheckerConfig: added
+- ./selfupdate.Config.ManifestVerifiers: added
+- ./selfupdate.Config.Probes: added
+- ./selfupdate.Config.ProgressInterval: added
+- ./selfupdate.ConfirmerFunc: added
+- ./selfupdate.Credential: added
+- ./selfupdate.CredentialObserver: added
+- ./selfupdate.CredentialProvider: added
+- ./selfupdate.CredentialRequest: added
+- ./selfupdate.DiscardReporter: added
+- ./selfupdate.EnvCredential: added
+- ./selfupdate.ErrCheckDeferred: added
+- ./selfupdate.ErrForceRequired: added
+- ./selfupdate.ErrLatestOlder: added
+- ./selfupdate.ErrNoCheckRecord: added
+- ./selfupdate.ErrNoCredential: added
+- ./selfupdate.Event.Total: added
+- ./selfupdate.EventDeclined: added
+- ./selfupdate.EventFailed: added
+- ./selfupdate.EventProgress: added
+- ./selfupdate.EventRolledBack: added
+- ./selfupdate.ExactAssetName: added
+- ./selfupdate.GitHubOptions.Credentials: added
+- ./selfupdate.GitHubOptions.Observer: added
+- ./selfupdate.InstallOptions.KeepPrevious: added
+- ./selfupdate.InstallOptions.PostInstall: added
+- ./selfupdate.InstallRequest.TargetVersion: added
+- ./selfupdate.InstallResult.Previous: added
+- ./selfupdate.InstallResult.RolledBack: added
+- ./selfupdate.ManifestVerification: added
+- ./selfupdate.ManifestVerifier: added
+- ./selfupdate.ManifestVerifierFunc: added
+- ./selfupdate.MultiReporter: added
+- ./selfupdate.NewChecker: added
+- ./selfupdate.NewFileCheckStore: added
+- ./selfupdate.NewImageVerifier: added
+- ./selfupdate.NewJSONReporter: added
+- ./selfupdate.NewManagedInstallerFor: added
+- ./selfupdate.NewPromptConfirmer: added
+- ./selfupdate.NewVersionProber: added
+- ./selfupdate.NonInteractiveConfirmer: added
+- ./selfupdate.ParseSHA256SUMS: added
+- ./selfupdate.ProbeInstalled: added
+- ./selfupdate.ProbePhase: added
+- ./selfupdate.ProbeRequest: added
+- ./selfupdate.ProbeStaged: added
+- ./selfupdate.Prober: added
+- ./selfupdate.ProberFunc: added
+- ./selfupdate.ReporterFunc: added
+- ./selfupdate.Request.DryRun: added
+- ./selfupdate.Result.Document: added
+- ./selfupdate.Result.DryRun: added
+- ./selfupdate.Result.Previous: added
+- ./selfupdate.ResultDocument: added
+- ./selfupdate.StagingOwner: added
+- ./selfupdate.TransformerFunc: added
+- ./selfupdate.TwoPhaseSession: added
+- ./selfupdate.Verification.OpenAsset: added
+- ./selfupdate.VerifierFunc: added
+- package github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest: added
+```
+
+### Release notes for `v1.1.0`
+
+**Additions.** Everything is additive; `make apicheck` reports no
+incompatible change against `v1.0.1`.
+
+* **Asking without installing:** `NewChecker`, `Updater.Checker`,
+  `Checker.Check` returning `Availability`, and `Checker.CheckCached` with
+  `CheckStore` and `NewFileCheckStore`, which backs off after a rate limit
+  (`ErrCheckDeferred`).
+* **Output:**
+  * `EventProgress` (opt-in through `Config.ProgressInterval`) with
+    `Event.Total`;
+  * the advisory `EventDeclined`, `EventFailed` and `EventRolledBack`;
+  * `NewJSONReporter` (JSON Lines), and `Result.Document` /
+    `ResultDocument` (`schema_version` 1);
+  * `MultiReporter`, `DiscardReporter`, `ReporterFunc`.
+* **Confirmers:** `ConfirmerFunc`, `NewPromptConfirmer`,
+  `NonInteractiveConfirmer`.
+* **Credentials:** `GitHubOptions.Credentials` and `.Observer`,
+  `CredentialProvider`, `ChainCredentials`, `EnvCredential`, and
+  `ErrNoCredential`.
+* **Integrity:**
+  * `Config.ManifestVerifiers` with `ManifestVerification.OpenAsset`, and
+    `Verification.OpenAsset`;
+  * `NewImageVerifier`, which checks ELF, Mach-O and PE;
+  * `VerifierFunc`, `ManifestVerifierFunc`, `TransformerFunc`.
+* **Probes:** `Config.Probes`, `InstallOptions.PostInstall` (rolls back on
+  failure), `NewVersionProber`, `ProberFunc`, and `InstallRequest.TargetVersion`.
+* **Lifecycle:** `Request.DryRun`, `InstallOptions.KeepPrevious` with
+  `Result.Previous` and `InstallResult.Previous`, `InstallResult.RolledBack`,
+  and `StandaloneInstaller.CleanupPending`.
+* **Custom installers:** `TwoPhaseSession`, `StagingOwner`,
+  `AppliedReplacement`, and `NewManagedInstallerFor`.
+* **Exported helpers:** `ExactAssetName`, `ParseSHA256SUMS`,
+  `AssetStateUploaded`, `ErrForceRequired`, `ErrLatestOlder`.
+* **The `selfupdatetest` package:** `NewRelease`, `FakeSource`,
+  `RecordingReporter`, `ScriptedConfirmer`, and `GitHubServer`.
+
+**Behaviour changes.**
+
+* **`NewTextReporter` prints `declined`, `failed` and `rolled-back` lines**
+  for the new outcome events. It skips progress events.
+* **Ownership checks fail closed.** A custom `InstallSession` used with a
+  `Transformer` must implement `StagingOwner`. Without it the run stops
+  before install with `transformed staging is not owned by the session`;
+  before, such a session was trusted. The standalone and managed sessions
+  implement it.
+* **Windows staging names end in `.exe`.** They are
+  `.<base>.selfupdate-*.exe`. The extension is a convention for tools that
+  key on it; the file runs without it (Step 8, D3).
+* **`Config.Versions` is honoured in request validation,** not only after
+  discovery.
+
+**Migration notes.**
+
+* No code change is needed to upgrade from `v1.0.x`; `go.mod` requires
+  nothing new.
+* **A custom session plus a `Transformer`:** add
+  `Owns(path string) bool`, returning true for the staging paths your
+  `CreateStaging` made.
+* **To run a custom installer under service management:** implement
+  `TwoPhaseSession` and use `NewManagedInstallerFor`. `NewManagedInstaller`
+  is unchanged.
+* **Scripts that parse the text reporter** may now see the outcome lines
+  above. For a stable format, use `NewJSONReporter` and `Result.Document`.
