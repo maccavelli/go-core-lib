@@ -192,6 +192,54 @@ func ExampleChecker_CheckCached() {
 	// network calls: 1
 }
 
+// A beta channel. Stable users keep getting v1.1.0. A user who opts in to
+// "beta" gets the newest stable, rc or beta release; "rc" admits no beta.
+func ExampleNewSemverPolicy() {
+	policy, err := selfupdate.NewSemverPolicy(selfupdate.SemverOptions{
+		AllowPrerelease: true, Channels: []string{"rc", "beta"},
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	plats := []selfupdate.Platform{{OS: "linux", Arch: "amd64"}}
+	body := func(selfupdate.Platform) []byte { return []byte("demo\n") }
+	beta := selfupdatetest.NewRelease("demo", "v1.2.0-beta.1", plats, body)
+	beta.Prerelease = true
+	src := selfupdatetest.NewFakeSource("v1.1.0", selfupdatetest.NewRelease("demo", "v1.1.0", plats, body), beta)
+	selector, err := selfupdate.NewExactAssetSelector(plats)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	checker, err := selfupdate.NewChecker(selfupdate.CheckerConfig{
+		Source: src, Versions: policy, Assets: selector, Limits: selfupdate.DefaultLimits(),
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	for _, channel := range []string{"", "rc", "beta"} {
+		avail, err := checker.Check(context.Background(), selfupdate.CheckRequest{
+			Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: selfupdate.ReleaseBuild,
+			Platform: plats[0], Channel: channel,
+		})
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		name := channel
+		if name == "" {
+			name = "stable"
+		}
+		fmt.Printf("%s: %s\n", name, avail.TargetVersion)
+	}
+	// Output:
+	// stable: v1.1.0
+	// rc: v1.1.0
+	// beta: v1.2.0-beta.1
+}
+
 // JSON Lines on stdout for a front end or a script; human text goes to
 // stderr.
 func ExampleNewJSONReporter() {

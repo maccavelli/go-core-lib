@@ -782,3 +782,139 @@ copies by a script-test variant of the mutation runner; none survived:
 * Also clean: actionlint v1.7.12, and markdownlint-cli2 0.23.2.
 * The Windows test host passed `go vet ./...`, `go test -race -count=1 ./...`
   and the script tests it runs, the verifier's four new cases among them.
+
+### Step 7: the end-to-end case and documentation (2026-10-01)
+
+**What changed.**
+
+* **`e2e_running_test.go`** gains `TestE2EUpdateRunningCopyOnChannel`.
+  * It builds the helper as `v1.0.0`, `v1.2.0` and `v1.3.0-rc.1`, and serves
+    a stable `v1.2.0` beside a flagged prerelease `v1.3.0-rc.1` through
+    `GitHubServer`, under `NewSemverPolicy` with the channel `rc`.
+  * The image verifier and both version probes run, as in
+    `TestE2EUpdateRunningCopy`.
+  * On `rc` the running v1 becomes the rc build, and reports
+    `demo v1.3.0-rc.1`. On the stable channel, from the same releases, it
+    becomes `v1.2.0`.
+  * Each case stops the old process, runs `CleanupPending`, and requires no
+    leftovers and no receipt, on every OS.
+  * `e2eOptions` gains `releases` and `versions`, and `run` becomes
+    `runOn("")`; the existing cases are unchanged.
+* **Docs:**
+  * `doc.go`: a "Channels" section, and the workflow input in the
+    publishing paragraph;
+  * `ExampleNewSemverPolicy`: one checker, three channels (stable, `rc`,
+    `beta`) and their answers;
+  * the extending guide: "Offer a beta channel", covering the policy, the
+    choice, moving between channels and publishing;
+  * `architecture.md`:
+    * the channel API by file;
+    * the new end-to-end case;
+    * the workflow's order, with the tag rule second;
+    * `check-release-tag.sh` in the tree and in CI;
+    * the test-file count, now 56;
+  * the "offer a beta or rc channel" row in `README.md` and
+    `docs/README.md`;
+  * the optional input in `README.md`'s publishing notes and in the
+    migration guide's workflow section.
+
+**Mutation proofs** for the new end-to-end case; neither survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the request drops the channel | `ExitCode = 0, res = {… TargetVersion:v1.2.0 …}` on the `rc` case |
+| discovery ignores the channel | `ExitCode = 0, res = {… TargetVersion:v1.2.0 …}` on the `rc` case |
+
+**Link check.** Nothing validates links in guides and READMEs, so a
+throwaway resolver checked every relative link and `#anchor` in the five
+changed documents: 0 broken. A scratch copy with one bad anchor and one
+missing file planted reported both.
+
+**Verification** (the list above), on the macOS development host:
+
+| Check | Result |
+| :--- | :--- |
+| `make pre-add-check` (every tracked Go file) | rc=0 |
+| `make lint` (three targets) | rc=0 |
+| `make apicheck` | `compatible with v1.2.0` |
+| `SELFUPDATE_REQUIRE_PYTHON=1 go test -race -count=1 ./...` | rc=0 |
+| `go test -shuffle=on -count=2 ./...` | rc=0 |
+| `make fuzz` | rc=0 |
+| `make vuln` | rc=0 |
+| `go mod tidy -diff` | rc=0 |
+| `git diff --exit-code v1.2.0 -- go.mod go.sum` | rc=0: unchanged |
+| the six script tests | rc=0 each |
+| `shellcheck scripts/*.sh`, actionlint v1.7.12 | rc=0 |
+| `check-workflows.sh` (both rules), on `ci.yml` (expressions), and its test | rc=0 |
+| markdownlint-cli2 0.23.2 | 0 issues |
+
+`apidiff -m` against `v1.2.0`, run on a `git archive` export of the tag,
+lists only additions:
+
+```text
+Compatible changes:
+- ./selfupdate.(*GitHubSource).ListReleases: added
+- ./selfupdate.ChannelPolicy: added
+- ./selfupdate.CheckRequest.Channel: added
+- ./selfupdate.ListOptions: added
+- ./selfupdate.NewSemverPolicy: added
+- ./selfupdate.ReleaseLister: added
+- ./selfupdate.Request.Channel: added
+- ./selfupdate.SemverOptions: added
+- ./selfupdate/selfupdatetest.(*FakeSource).ListReleases: added
+```
+
+The Windows test host passed `go vet ./...`, `go test -race -count=1 ./...`
+and the script tests. A run of the new case alone showed
+`--- PASS: TestE2EUpdateRunningCopyOnChannel` with both subtests.
+
+### Release notes for `v1.3.0`
+
+**Additions.** Everything is additive; `apidiff` lists only the additions
+above.
+
+* **Prerelease grammar:** `NewSemverPolicy(SemverOptions{AllowPrerelease,
+  Channels})`.
+  * It accepts strict `vX.Y.Z` and `vX.Y.Z-NAME.N` for each listed channel.
+  * Channels are listed most stable first, in descending ASCII order.
+  * Build metadata is never accepted.
+* **Channels:** `ChannelPolicy` (`ValidChannel`, `Admits`), the policy
+  `NewSemverPolicy` returns; `Request.Channel` and `CheckRequest.Channel`.
+* **Listing:** `ReleaseLister` and `ListOptions`, implemented by
+  `GitHubSource.ListReleases` (90 releases by default, 300 at most) and by
+  `selfupdatetest.FakeSource`. `GitHubServer` serves the paged list.
+* **Publishing:** the release workflow's optional
+  `prerelease-channels-json` input, and `scripts/check-release-tag.sh`.
+
+**Behaviour changes.**
+
+* **`GitHubSource.ByTag` and `Latest` return prereleases**, flagged with
+  `Release.Prerelease`; before, they refused them.
+  * `Updater.Run` and `Checker` are unaffected: without a channel,
+    discovery still refuses a prerelease.
+  * A program that calls `ByTag` directly and relied on the refusal must
+    check `Release.Prerelease` itself.
+* **The check-cache file is schema 2**, which adds `channel`.
+  * `v1.3.0` reads schema 1 as the stable channel.
+  * A program downgraded to `v1.2.x` reads a schema-2 file as
+    `ErrNoCheckRecord`, a cache miss: it checks once and rewrites the file.
+* **The release workflow** checks the tag after checking out its own
+  tools, still before it reads the artifact or creates a release. A
+  refused tag's message now comes from `check-release-tag.sh`. With the
+  default input, the tags it accepts are unchanged.
+
+**Migration notes.**
+
+* No code change is needed to upgrade from `v1.2.x`, and `go.mod` requires
+  nothing new.
+* **To offer a channel:**
+  * replace `NewStrictVersionPolicy` with `NewSemverPolicy`;
+  * set `Request.Channel` from a flag or a setting;
+  * pass `prerelease-channels-json` to the release workflow.
+
+  The extending guide's "Offer a beta channel" has the details.
+* **A custom `ReleaseSource` used with a channel** must implement
+  `ReleaseLister`; without it, a channel request fails and names the
+  missing capability.
+* **Workflow callers** change nothing unless they publish prereleases. Pin
+  the new release's commit as before.

@@ -100,6 +100,9 @@ In the job that publishes your release, change the `uses:` line and delete
     `\r\n` line endings, and each line under 4096 bytes. `sha256sum`
     output always does.
 - The staging artifact must hold regular files only; a symlink is refused.
+- **`prerelease-channels-json` is new and optional.** Its default, `[]`,
+  publishes strict `vX.Y.Z` tags only, as before. To publish prereleases,
+  see [Offer a beta channel](extending-selfupdate.md#offer-a-beta-channel).
 
 ## 4. Check
 

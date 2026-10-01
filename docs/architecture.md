@@ -36,6 +36,8 @@ scripts/
   selfupdate_manifest.py    the verifier's SHA256SUMS parser, as a module;
                             the differential test calls it too
   refuse-existing-release.sh       refuses a tag that already has a release
+  check-release-tag.sh      the tag rule: strict, or a listed prerelease
+                            channel; the workflow and the verifier call it
   check-workflows.sh        parses workflows as YAML: no ${{ }} in a run script,
                             and every repository-scoped gh step sets GH_REPO
   check-api-compat.sh       fails on an incompatible exported API change
@@ -59,7 +61,7 @@ docs/
 
 | Directory | Package | Non-test files | Test files | Non-standard imports |
 | :--- | :--- | :--- | :--- | :--- |
-| `selfupdate/` | `selfupdate` | 38 | 50, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `selfupdate/` | `selfupdate` | 38 | 56, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
 | `selfupdate/selfupdatetest/` | `selfupdatetest` | 2 | 1 | none (`selfupdate` itself) |
 
 - `selfupdate` began as `mcplib` `v1.6.0`'s `selfupdate` (commit
@@ -101,6 +103,22 @@ docs/
     a mutex-guarded queue that coalesces only trailing progress, with a
     one-slot wake channel and a channel closed after `Finished`.
     `PromptCredential` finds the run's `Stream` through the run's context.
+- Prerelease channels
+  ([0005-MADR](decisions/0005-MADR-opt-in-prerelease-channels.md)):
+  - **the grammar:** `version.go` (`NewSemverPolicy`, `SemverOptions`),
+    whose policy is a `ChannelPolicy` (`types.go`, with `ValidChannel`
+    and `Admits`);
+  - **the opt-in:** `Request.Channel` and `CheckRequest.Channel`, checked
+    by `validateRequest`; the cache file is schema 2, which keys the
+    channel, and still reads schema 1 (`checkcache.go`);
+  - **listing:** `ReleaseLister` and `ListOptions` (`types.go`), and
+    `GitHubSource.ListReleases`, which pages `releases?per_page=30` up to
+    90 releases by default and 300 at most (`github.go`);
+  - **discovery:** `checker.go`. With a channel it takes the highest
+    admitted release on its tag and flags alone, then checks that one in
+    full; a failure is an error, never a fallback. Under a
+    `ChannelPolicy`, a release whose prerelease flag disagrees with its
+    tag is refused on every request, the stable channel included.
 - `selfupdatetest` provides `NewRelease`, `FakeSource`,
   `RecordingReporter`, `ScriptedConfirmer`, and `GitHubServer`, a fake
   GitHub API on one TLS origin whose asset requests redirect to a second,
@@ -139,20 +157,25 @@ docs/
 ## Release workflow
 
 `publish-selfupdate-release.yml` is called with `artifact-name`,
-`products-json`, `platforms-json` and `extra-assets-json`. On a strict
-`vMAJOR.MINOR.PATCH` tag, in order, it:
+`products-json`, `platforms-json` and `extra-assets-json`, and optionally
+`prerelease-channels-json` (default `[]`). On a tag ref, in order, it:
 
 1. checks out its own commit at `.core-lib-release-tools`, to run the scripts
    above from the same commit as the workflow;
-2. refuses an existing release (`refuse-existing-release.sh`), after
+2. requires an admitted tag (`check-release-tag.sh`): a strict
+   `vMAJOR.MINOR.PATCH`, or `vMAJOR.MINOR.PATCH-NAME.N` for a `NAME` in
+   `prerelease-channels-json`, the rule `NewSemverPolicy` applies;
+3. refuses an existing release (`refuse-existing-release.sh`), after
    proving the repository itself is readable;
-3. downloads the caller's artifact to `staging/`;
-4. validates the staged set (`verify-selfupdate-release.sh`): regular files
+4. downloads the caller's artifact to `staging/`;
+5. validates the staged set (`verify-selfupdate-release.sh`): regular files
    only, safe extra names, and a `SHA256SUMS` parsed exactly as the client
    parses it. Both parsers run the fixtures in
    `selfupdate/testdata/manifest-parity/`;
-5. creates a draft, uploads the files (one argument each), attests them,
-   publishes, and waits for the release to be immutable and verified.
+6. creates a draft, uploads the files (one argument each), attests them,
+   publishes, and waits for the release to be immutable and verified. A
+   prerelease tag is created with `--prerelease --latest=false`, so it
+   never becomes the release stable clients read.
 
 Every `gh` step that acts on the calling repository sets `GH_REPO`. Every
 `run:` block reads the ref from `env:` (`TAG`, `REF_TYPE`); no `${{ }}` is
@@ -179,6 +202,9 @@ interpolated into shell.
     which `CleanupPending` refuses to clear until the old process exits,
     and then clears.
   - Six refusals each leave the running v1 byte-identical.
+  - A channel case serves a stable `v1.2.0` and a prerelease
+    `v1.3.0-rc.1` under `NewSemverPolicy`: on `rc` the running copy
+    becomes the rc build, and on the stable channel `v1.2.0`.
 - **The manifest differential.** `TestManifestDifferential` generates 5,000
   manifests from a fixed seed. Each must be accepted or rejected alike, with
   the same entries, by `ParseSHA256SUMS` and by the verifier's own parser,
@@ -214,7 +240,8 @@ interpolated into shell.
     `shellcheck` v0.11.0 (the latest release, pinned by SHA-256 and first
     on `PATH`, so actionlint's embedded checks use it too),
     `markdownlint-cli2` 0.23.2 and `actionlint` v1.7.12; the verifier's
-    fixture test; and the workflow checker and its test.
+    fixture test; the release tag rule's test; and the workflow checker
+    and its test.
   - One run per ref (`concurrency`, cancel in progress). Actions are pinned
     to commit SHAs.
 

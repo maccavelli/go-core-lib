@@ -45,7 +45,8 @@ The library never reads flags or calls `os.Exit`. The program binds:
 
 - a **source** (`NewGitHubSource`, with a required product/version
   `User-Agent`; `GH_TOKEN` or `GITHUB_TOKEN` is used when set),
-- a **version policy** (`NewStrictVersionPolicy`: strict `vMAJOR.MINOR.PATCH`),
+- a **version policy** (`NewStrictVersionPolicy`: strict `vMAJOR.MINOR.PATCH`;
+  `NewSemverPolicy` adds opt-in prerelease channels),
 - an **asset selector** (`NewExactAssetSelector`),
 - an **installer** (`StandaloneInstaller` for a plain binary;
   `ManagedInstaller` when a service must stop and start around the replace),
@@ -72,7 +73,9 @@ release. It never `--clobber`s. It is the only supported publication path for
 the asset contract. Its `SHA256SUMS` check is the client's own parser,
 ported, so it never publishes a manifest the client cannot read. Extra asset
 names must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, and staged entries
-must be regular files.
+must be regular files. The optional `prerelease-channels-json` names the
+channels it may publish `vX.Y.Z-NAME.N` prereleases for, which never become
+the latest release; the default `[]` publishes stable tags only.
 
 ```yaml
 release:
@@ -86,6 +89,8 @@ release:
     products-json: '["<product>"]'
     platforms-json: '[{"os":"linux","arch":"amd64"},{"os":"windows","arch":"amd64"}]'
     extra-assets-json: '[]'
+    # Optional; for prereleases tagged vX.Y.Z-rc.N or vX.Y.Z-beta.N:
+    # prerelease-channels-json: '["rc","beta"]'
 ```
 
 ## I want to…
@@ -94,6 +99,7 @@ release:
 | :--- | :--- |
 | see what is in this repository today | [architecture.md](docs/architecture.md) |
 | move a program from `mcplib/selfupdate` to this module | [the migration guide](docs/guides/migrating-from-mcplib-selfupdate.md) |
+| offer a beta or rc channel | [the extending guide](docs/guides/extending-selfupdate.md#offer-a-beta-channel) |
 | know why `selfupdate` moved here, and what changed on the way | [0002-MADR](docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md) |
 | know why the repository is set up the way it is | [0001-MADR](docs/decisions/0001-MADR-scaffold-shared-go-library.md) |
 | contribute: checks, records and commit rules | [AGENTS.md](AGENTS.md) |

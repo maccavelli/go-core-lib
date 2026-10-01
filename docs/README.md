@@ -29,6 +29,7 @@
 | see what is in this repository today | [architecture.md](architecture.md) |
 | move a program from `mcplib/selfupdate` to this module | [guides/migrating-from-mcplib-selfupdate.md](guides/migrating-from-mcplib-selfupdate.md) |
 | show an update banner | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#show-an-update-banner) |
+| offer a beta or rc channel | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#offer-a-beta-channel) |
 | read JSON output | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#read-json-output) |
 | plug in a credential | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#plug-in-a-credential) |
 | verify a signature later | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#verify-a-signature-later) |

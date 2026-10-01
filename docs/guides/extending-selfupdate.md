@@ -29,6 +29,55 @@ touching the network.
 - `ExampleNewChecker`, `ExampleChecker_CheckCached`
 - `selfupdate/checker_test.go`, `selfupdate/checkcache_test.go`
 
+## Offer a beta channel
+
+A channel lets users who opt in get prereleases, while everyone else
+stays on stable builds. It takes a version policy that knows the channels,
+a per-run choice, and a workflow input.
+
+- **The policy.**
+  `NewSemverPolicy(SemverOptions{AllowPrerelease: true, Channels: []string{"rc", "beta"}})`
+  replaces `NewStrictVersionPolicy`.
+  - It accepts `vX.Y.Z` and `vX.Y.Z-NAME.N` for each listed name.
+  - The names are listed most stable first, in descending ASCII order,
+    so version precedence agrees with stability; the constructor
+    refuses any other order. A name's place is fixed by its spelling:
+    `nightly` sorts above `beta`, so it can never be the less stable of
+    the two.
+  - Build metadata (`+…`) is never accepted.
+- **The choice.** Set `Request.Channel` or `CheckRequest.Channel`, for
+  example from a `--channel` flag or a setting.
+  - `""` is the stable channel. It uses `Latest` and never offers a
+    prerelease.
+  - A channel admits stable releases, its own prereleases and those of
+    every more stable channel: `beta` also gets `rc` builds.
+  - A channel lists releases through `ReleaseLister`, which
+    `GitHubSource` implements; a source that does not is refused.
+  - `CheckCached` keys its answer by channel, so switching channel never
+    reuses the other channel's answer.
+  - A pinned `TargetVersion` that is a prerelease needs a channel that
+    admits it.
+- **Moving between channels** follows version order. On `v1.3.0-rc.2`,
+  a stable `v1.3.0` is an upgrade on every channel. Back on the stable
+  channel while it is still at `v1.2.0`, `Run` reports `ErrLatestOlder`;
+  `--version v1.2.0` is the explicit way back.
+- **Publishing.** Pass the channels to the release workflow, and tag the
+  prerelease `vX.Y.Z-NAME.N`:
+
+  ```yaml
+  with:
+    prerelease-channels-json: '["rc","beta"]'
+  ```
+
+  The workflow publishes such a tag as a GitHub prerelease that never
+  becomes the repository's latest release, so stable clients never see
+  it. Without the input, it refuses every prerelease tag.
+
+- `ExampleNewSemverPolicy`
+- `selfupdate/channel_test.go`, and `TestE2EUpdateRunningCopyOnChannel` in
+  `selfupdate/e2e_running_test.go`
+- Why, and the rules: [0005-MADR](../decisions/0005-MADR-opt-in-prerelease-channels.md)
+
 ## Read JSON output
 
 `NewJSONReporter` writes one JSON object per event (JSON Lines), with the keys

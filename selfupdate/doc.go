@@ -44,6 +44,24 @@
 // CheckStore, such as NewFileCheckStore, so a program that starts often asks
 // the network at most once per interval and backs off after a rate limit.
 //
+// # Channels
+//
+// NewStrictVersionPolicy accepts only vMAJOR.MINOR.PATCH. NewSemverPolicy,
+// with AllowPrerelease, also accepts vMAJOR.MINOR.PATCH-NAME.N for each name
+// in Channels, listed most stable first, such as {"rc", "beta"}. A user
+// opts in per run with Request.Channel or CheckRequest.Channel. A channel
+// admits stable releases and the prereleases of itself and of every more
+// stable channel, so "beta" admits rc builds too. Discovery then picks the
+// highest admitted release from a ReleaseLister, which GitHubSource is.
+// With no channel, discovery uses Latest and never offers a prerelease.
+//
+// A release whose prerelease flag disagrees with its tag is never offered,
+// because the tag of an immutable release cannot change and its flag can.
+// Leaving a channel never downgrades: until the stable channel passes the
+// running prerelease, Run reports ErrLatestOlder, and an exact
+// Request.TargetVersion is the explicit way back. A pinned prerelease needs
+// a channel that admits it.
+//
 // # Events and output
 //
 // A Reporter receives one Event per stage. NewTextReporter writes plain
@@ -97,5 +115,7 @@
 // Consumers publish through the reusable workflow
 // .github/workflows/publish-selfupdate-release.yml at the exact go-core-lib
 // module-tag commit. That workflow is the only supported publication path
-// for the canonical asset contract.
+// for the canonical asset contract. Its prerelease-channels-json input
+// names the channels it may publish prereleases for; the default publishes
+// stable tags only.
 package selfupdate

@@ -18,7 +18,9 @@ import (
 )
 
 // Tests for docs/decisions/0004-PLAN-h4-running-copy-end-to-end.md (0004-MADR
-// §8 H4, amendment D1): Updater.Run replaces a program while it runs.
+// §8 H4, amendment D1): Updater.Run replaces a program while it runs. The
+// channel case is docs/decisions/0005-PLAN-opt-in-prerelease-channels.md
+// Step 7.
 
 // helperSource is the program being updated. Its version is stamped at build
 // time, so the old and new builds differ in their bytes and say which they
@@ -144,6 +146,11 @@ type e2e struct {
 type e2eOptions struct {
 	release     func(selfupdatetest.ReleaseSpec) selfupdatetest.ReleaseSpec
 	postInstall selfupdate.Prober
+	// releases, when set, are served in place of the one v1.1.0 release
+	// built from served.
+	releases []selfupdatetest.ReleaseSpec
+	// versions, when set, replaces NewStrictVersionPolicy.
+	versions selfupdate.VersionPolicy
 }
 
 const e2eToken = "e2e-token"
@@ -169,7 +176,11 @@ func newE2E(t *testing.T, v1, served []byte, o e2eOptions) *e2e {
 	if o.release != nil {
 		spec = o.release(spec)
 	}
-	gh := selfupdatetest.NewGitHubServer(t, "owner", "demo", spec)
+	releases := []selfupdatetest.ReleaseSpec{spec}
+	if o.releases != nil {
+		releases = o.releases
+	}
+	gh := selfupdatetest.NewGitHubServer(t, "owner", "demo", releases...)
 	gh.RequireToken(e2eToken)
 	src, err := selfupdate.NewGitHubSource(selfupdate.GitHubOptions{
 		Repository: selfupdate.Repository{Owner: "owner", Name: "demo"},
@@ -202,9 +213,13 @@ func newE2E(t *testing.T, v1, served []byte, o e2eOptions) *e2e {
 	if err != nil {
 		t.Fatal(err)
 	}
+	versions := o.versions
+	if versions == nil {
+		versions = selfupdate.NewStrictVersionPolicy()
+	}
 	rec := &selfupdatetest.RecordingReporter{}
 	u, err := selfupdate.New(selfupdate.Config{
-		Source: src, Versions: selfupdate.NewStrictVersionPolicy(), Assets: sel,
+		Source: src, Versions: versions, Assets: sel,
 		Verifiers: []selfupdate.Verifier{image}, Probes: []selfupdate.Prober{prober},
 		Installer: inst, Reporter: rec, Confirmer: selfupdate.NonInteractiveConfirmer(),
 		Limits: selfupdate.DefaultLimits(),
@@ -216,9 +231,14 @@ func newE2E(t *testing.T, v1, served []byte, o e2eOptions) *e2e {
 }
 
 func (e *e2e) run() (selfupdate.Result, error) {
+	return e.runOn("")
+}
+
+// runOn runs the update on channel; "" is the stable channel.
+func (e *e2e) runOn(channel string) (selfupdate.Result, error) {
 	return e.u.Run(context.Background(), selfupdate.Request{
 		Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: selfupdate.ReleaseBuild,
-		Platform: runtimePlatform, Yes: true,
+		Platform: runtimePlatform, Yes: true, Channel: channel,
 	})
 }
 
@@ -320,6 +340,58 @@ func TestE2EUpdateRunningCopy(t *testing.T) {
 	}
 	if exists(res.PendingBackup) || exists(e.receipt()) || len(e.leftovers(t)) != 0 {
 		t.Fatalf("after cleanup: backup %v, receipt %v, leftovers %v", exists(res.PendingBackup), exists(e.receipt()), e.leftovers(t))
+	}
+}
+
+// TestE2EUpdateRunningCopyOnChannel: a running program on the rc channel is
+// replaced by the prerelease, and on the stable channel, from the same
+// releases, by the stable build. Both pass the image check and the version
+// probes, so the installed program reports the prerelease tag itself.
+func TestE2EUpdateRunningCopyOnChannel(t *testing.T) {
+	selfupdate.CheckNoLeak(t)
+	v1 := buildHelper(t, "v1.0.0", runtime.GOOS)
+	stable := buildHelper(t, "v1.2.0", runtime.GOOS)
+	rc := buildHelper(t, "v1.3.0-rc.1", runtime.GOOS)
+	policy, err := selfupdate.NewSemverPolicy(selfupdate.SemverOptions{AllowPrerelease: true, Channels: []string{"rc"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plats := []selfupdate.Platform{runtimePlatform}
+	pre := selfupdatetest.NewRelease("demo", "v1.3.0-rc.1", plats, func(selfupdate.Platform) []byte { return rc })
+	pre.Prerelease = true
+	releases := []selfupdatetest.ReleaseSpec{
+		selfupdatetest.NewRelease("demo", "v1.2.0", plats, func(selfupdate.Platform) []byte { return stable }),
+		pre,
+	}
+	for _, c := range []struct {
+		name, channel, want string
+		body                []byte
+	}{
+		{"rc", "rc", "v1.3.0-rc.1", rc},
+		{"stable", "", "v1.2.0", stable},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newE2E(t, v1, nil, e2eOptions{releases: releases, versions: policy})
+			res, err := e.runOn(c.channel)
+			if code := selfupdate.ExitCode(res, err); code != 0 || !res.Applied || res.TargetVersion != c.want {
+				t.Fatalf("ExitCode = %d, res = %+v, err = %v; want %s applied", code, res, err, c.want)
+			}
+			if !slices.Equal(e.bytes(t), c.body) {
+				t.Fatalf("the target does not hold the %s build", c.want)
+			}
+			if got := e.version(t); got != "demo "+c.want {
+				t.Fatalf("after the update the target reports %q", got)
+			}
+			if err := e.running.stop(); err != nil {
+				t.Fatalf("the old process did not exit cleanly: %v", err)
+			}
+			if err := e.inst.CleanupPending(context.Background()); err != nil {
+				t.Fatalf("CleanupPending after the old process exited = %v", err)
+			}
+			if left := e.leftovers(t); len(left) != 0 || exists(e.receipt()) {
+				t.Fatalf("leftovers %v, receipt %v", left, exists(e.receipt()))
+			}
+		})
 	}
 }
 
