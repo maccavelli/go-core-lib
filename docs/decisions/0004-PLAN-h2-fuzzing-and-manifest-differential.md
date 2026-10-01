@@ -183,7 +183,7 @@ must pass: 23 parity cases, the structure cases and the name cases.
 
 | Mutation | Must fail |
 | :--- | :--- |
-| `parse_manifest` stops stripping a trailing `\r` | the shell test's `parity crlf` |
+| ~~`parse_manifest` stops stripping a trailing `\r`~~ *(D1: equivalent; replaced by "stops lowercasing digests")* | ~~the shell test's `parity crlf`~~ `parity uppercase-hex` |
 | `parse_manifest` raises on every input (a planted `raise ManifestError`) | the shell test, on every accepting case: this proves the verifier calls the module, not a copy |
 
 **Checks.** `shellcheck scripts/*.sh`. The Windows test host runs the shell
@@ -366,3 +366,60 @@ close-out, at that point.
   `success`. Its index row reads `complete`.
 * `docs/architecture.md` names `v1.2.0` on `cfc95c8` as the current
   release.
+
+### Step 2: the verifier's parser as a module (2026-10-01)
+
+**What changed.**
+
+* **`scripts/selfupdate_manifest.py`** (new) has the PLAN's contents.
+  * `MAX_CHECKSUM_LINE`, `go_isspace`, `go_trim_space` and `go_fields` are
+    moved verbatim. The digest regular expression is `HEX_RE`; it was
+    `hex_re`.
+  * `ManifestError(ValueError)`.
+  * `parse_manifest(raw, label)` is the old `parse_sums`, reading bytes,
+    with every message unchanged and `fail()` replaced by
+    `raise ManifestError`.
+  * `parse DIR` is the JSON-lines command, with names hex-encoded through
+    `surrogateescape`, ASCII-only output and exit 2 on a usage error.
+* **`scripts/verify-selfupdate-release.sh`.**
+  * It computes `SCRIPTS` (its own directory) and runs
+    `python3 -B - "$SCRIPTS" …`.
+  * The heredoc puts that directory on `sys.path` and imports
+    `ManifestError` and `parse_manifest`. `unicodedata` and `hex_re` are
+    gone from it, because only the parser used them.
+  * The 69 lines of parser became a read of `SHA256SUMS` and a
+    `try`/`except` that calls `fail(str(e))`.
+* **`.gitignore`** gains `__pycache__/` and `*.py[cod]`.
+
+**Behaviour unchanged.**
+
+* `scripts/verify-selfupdate-release_test.sh` printed the same 45 `ok`
+  lines as the committed version on a scratch clone, with an empty `diff`,
+  including all 23 `parity` cases.
+* No `__pycache__` was written.
+* `shellcheck scripts/*.sh` is clean.
+* The Windows test host ran the shell test and passed all 23 parity cases.
+  `go vet ./...` and `go test -race -count=1 ./...` also passed there.
+
+**Proofs** (scratch copies, the shell test):
+
+| Mutation | Failure |
+| :--- | :--- |
+| `parse_manifest` stops lowercasing digests | `not ok - parity uppercase-hex` |
+| `parse_manifest` raises on every input | `not ok - valid artifact` (the verifier calls the module) |
+
+**Deviation D1 (2026-10-01): the `\r` proof was an equivalent mutation.**
+
+* **Found.** "`parse_manifest` stops stripping a trailing `\r`" survived:
+  the shell test passed.
+  * `go_isspace` counts `\r` as whitespace, so a trailing `\r` already
+    splits fields and trims out of every comparison. The `rstrip("\r")` can
+    never change a result.
+  * Go's parser has the same redundancy: `strings.TrimRight(…, "\r")`, then
+    `strings.FieldsFunc(…, unicode.IsSpace)`.
+* **Decision.** It was replaced by an observable mutation of the same
+  function, "stops lowercasing digests", which the `uppercase-hex` fixture
+  kills. This follows the precedent of
+  [0004-PLAN-v1-1-0-core-api.md](0004-PLAN-v1-1-0-core-api.md) Step 4's D1.
+  The `rstrip` stays: it mirrors Go's `TrimRight` line for line.
+* **MADR.** No change.

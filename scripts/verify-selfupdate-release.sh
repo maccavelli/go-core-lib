@@ -50,12 +50,19 @@ fi
 	exit 1
 }
 
-python3 - "$DIR" "$PRODUCTS_JSON" "$PLATFORMS_JSON" "$EXTRAS_JSON" "$TAG" <<'PY'
-import hashlib, json, os, re, stat, sys, unicodedata
+# The SHA256SUMS parser is selfupdate_manifest.py beside this script, so
+# selfupdate's differential test runs the same code (0004-MADR H2, C1).
+# -B writes no __pycache__ into the tools checkout.
+SCRIPTS=$(cd -- "$(dirname -- "$0")" && pwd)
 
-dirpath, products_raw, platforms_raw, extras_raw, tag = sys.argv[1:6]
+python3 -B - "$SCRIPTS" "$DIR" "$PRODUCTS_JSON" "$PLATFORMS_JSON" "$EXTRAS_JSON" "$TAG" <<'PY'
+import hashlib, json, os, re, stat, sys
+
+scripts_dir, dirpath, products_raw, platforms_raw, extras_raw, tag = sys.argv[1:7]
+sys.path.insert(0, scripts_dir)
+from selfupdate_manifest import ManifestError, parse_manifest
+
 tag_re = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
-hex_re = re.compile(r"^[0-9a-fA-F]{64}$")
 os_arch_re = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 product_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -144,76 +151,12 @@ if present_set != expected:
     extra = sorted(present_set - expected)
     fail("file set mismatch missing=%s extra=%s" % (missing, extra))
 
-MAX_CHECKSUM_LINE = 4096  # selfupdate/checksums.go maxChecksumLine
-
-
-def go_isspace(c):
-    # Go's unicode.IsSpace, which differs from str.isspace (that also
-    # counts U+001C..U+001F).
-    return c in "\t\n\v\f\r \x85\xa0" or unicodedata.category(c) in ("Zs", "Zl", "Zp")
-
-
-def go_trim_space(s):
-    start, end = 0, len(s)
-    while start < end and go_isspace(s[start]):
-        start += 1
-    while end > start and go_isspace(s[end - 1]):
-        end -= 1
-    return s[start:end]
-
-
-def go_fields(s):
-    fields, cur = [], []
-    for c in s:
-        if go_isspace(c):
-            if cur:
-                fields.append("".join(cur))
-                cur = []
-        else:
-            cur.append(c)
-    if cur:
-        fields.append("".join(cur))
-    return fields
-
-
-def parse_sums(path):
-    """Mirror parseSHA256SUMS in selfupdate/checksums.go (0003-MADR D1)."""
-    base = os.path.basename(path)
-    with open(path, "rb") as f:
-        raw = f.read()
-    # bufio.ScanLines splits on \n only; a final empty segment is no line.
-    segments = raw.split(b"\n")
-    if segments and segments[-1] == b"":
-        segments.pop()
-    entries = {}
-    for i, seg in enumerate(segments, 1):
-        # The scanner's 4096-byte buffer must hold the line and its newline.
-        if len(seg) >= MAX_CHECKSUM_LINE:
-            fail("%s line %d: longer than the client accepts" % (base, i))
-        line = seg.decode("utf-8", errors="surrogateescape").rstrip("\r")
-        trimmed = go_trim_space(line)
-        if trimmed == "" or trimmed.startswith("#"):
-            continue
-        fields = go_fields(line)
-        if len(fields) != 2:
-            fail("%s line %d: want exactly two fields" % (base, i))
-        digest, name = fields
-        if name.startswith("*"):
-            name = name[1:]
-        if name == "" or "*" in name:
-            fail("%s line %d: malformed filename" % (base, i))
-        if not hex_re.fullmatch(digest) or not digest.isascii():
-            fail("%s line %d: malformed digest" % (base, i))
-        if name in (".", "..") or "/" in name or "\\" in name or os.path.basename(name) != name:
-            fail("%s line %d: filename is not a basename" % (base, i))
-        if name in entries:
-            fail("%s duplicate filename %s" % (base, name))
-        entries[name] = digest.lower()
-    if not entries:
-        fail("%s has no entries" % base)
-    return entries
-
-sums = parse_sums(os.path.join(dirpath, "SHA256SUMS"))
+with open(os.path.join(dirpath, "SHA256SUMS"), "rb") as f:
+    raw = f.read()
+try:
+    sums = parse_manifest(raw, "SHA256SUMS")
+except ManifestError as e:
+    fail(str(e))
 if set(sums) != set(canonical):
     fail("SHA256SUMS must contain exactly the canonical binaries")
 
