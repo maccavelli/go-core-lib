@@ -167,6 +167,18 @@ interpolated into shell.
   `FUZZTIME` (default 20s), with minimization capped at 5 s. A failing
   input stays in `selfupdate/testdata/fuzz/<Name>/`, where it is a seed from
   then on.
+- **The running-copy end-to-end tests** (`selfupdate/e2e_running_test.go`).
+  - The test builds a small helper twice, as `v1.0.0` and `v1.1.0`,
+    with the version stamped by `-ldflags -X`, and starts the v1 build
+    from the target.
+  - `Updater.Run` then updates it through `GitHubServer` (a redirect and
+    a token), the image verifier, both version probes and the standalone
+    installer.
+  - **Linux and macOS:** the commit is clean.
+  - **Windows:** the running image keeps a pending backup and receipt,
+    which `CleanupPending` refuses to clear until the old process exits,
+    and then clears.
+  - Six refusals each leave the running v1 byte-identical.
 - **The manifest differential.** `TestManifestDifferential` generates 5,000
   manifests from a fixed seed. Each must be accepted or rejected alike, with
   the same entries, by `ParseSHA256SUMS` and by the verifier's own parser,

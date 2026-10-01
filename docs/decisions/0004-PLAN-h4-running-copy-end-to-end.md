@@ -371,3 +371,43 @@ different error, and the case's exact-error assertion caught it:
   4.9 s, including the post-install rollback that moves v1 back while v1
   runs.
 * `make pre-add-check` passed on the file.
+
+### Step 4: documentation and close-out (2026-10-01)
+
+**What changed.**
+
+* **`docs/architecture.md`, "Tooling"**, describes the running-copy
+  end-to-end tests: the helper built twice, the path `Run` takes, the
+  per-OS outcome, and the six refusals.
+* **`docs/README.md`** gains "see the update path proven end to end on each
+  OS".
+
+**Finding, recorded and not acted on (the PLAN's item 3).**
+
+* On Windows, while the image an update replaced is still running,
+  `StandaloneInstaller.CleanupPending` fails, and so does every later
+  `Begin`, which processes the receipt first. The error is
+  `selfupdate: remove pending backup: removeat …: Access is denied.`
+* It is not `ErrConcurrentUpdate`, the only failure `CleanupPending`'s doc
+  comment calls benign.
+* `TestE2EUpdateRunningCopy` now pins this behaviour, on the Windows test
+  host and on the Windows CI leg.
+* A program that follows the doc and calls `CleanupPending` at startup sees
+  this error until the old process exits. Whether to classify it, for
+  example with a benign sentinel such as `ErrBackupInUse`, and to document
+  it, needs a later record. Nothing was changed here.
+
+**Verification (the PLAN's list).**
+
+* `make lint` (three targets) and `make apicheck`
+  (`compatible with v1.2.0`) passed.
+* `SELFUPDATE_REQUIRE_PYTHON=1 go test -race -count=1 ./...` and
+  `go test -shuffle=on -count=2 ./...` passed on macOS.
+* `make vuln`: `No vulnerabilities found`. `go mod tidy -diff` is clean, and
+  `git diff v1.2.0 -- go.mod go.sum` is empty.
+* Markdown lint is clean, and the links in `docs/README.md` and
+  `docs/architecture.md` resolve.
+* The Windows test host passed in Steps 2 and 3. Step 4 changed only
+  documentation.
+* **Not yet:** CI on the pushed tree, with both tests passing on all three
+  legs. This PLAN stays `in-progress` until then.

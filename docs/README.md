@@ -30,6 +30,7 @@
 | verify a signature later | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#verify-a-signature-later) |
 | probe the new binary | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#probe-the-new-binary) |
 | drive an update from a TUI or event loop | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#drive-an-update-from-a-tui-or-event-loop) |
+| see the update path proven end to end on each OS | `selfupdate/e2e_running_test.go`; [0004-PLAN, H4](decisions/0004-PLAN-h4-running-copy-end-to-end.md) |
 | fuzz locally | `make fuzz` (each target for 20 s), or `make fuzz FUZZTIME=5m`; see [architecture.md, Tooling](architecture.md#tooling) |
 | know what to do when CI finds a crasher | download the `fuzz-corpus` artifact, copy its file into `selfupdate/testdata/fuzz/<Name>/`, fix the defect, and commit the file as a regression seed ([0004-PLAN, H2](decisions/0004-PLAN-h2-fuzzing-and-manifest-differential.md)) |
 | write my own installer, or test a program that self-updates | [guides/extending-selfupdate.md](guides/extending-selfupdate.md#write-your-own-installer) |
