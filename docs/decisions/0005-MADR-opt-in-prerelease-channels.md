@@ -105,6 +105,26 @@ Chosen option: **"A. Opt-in prerelease selection in the client"**, because:
 
 C is subsumed: a pinned prerelease is one case of A.
 
+**Amended 2026-10-01 by [0005-PLAN-opt-in-prerelease-channels.md](0005-PLAN-opt-in-prerelease-channels.md).**
+The owner approved five amendments with the PLAN. Each is marked where it
+applies:
+
+* **E1.** An optional `ChannelPolicy` (`VersionPolicy` plus
+  `ValidChannel` and `Admits`) carries the channel operations.
+  `NewSemverPolicy`'s value implements it, and any other policy refuses
+  every non-empty channel.
+* **E2.** Channel names match `^[a-z][a-z0-9]{0,15}$`, in strictly
+  descending ASCII order, so that stability order equals SemVer
+  precedence.
+* **E3.** `per_page` is 30. `Limit` defaults to 90 and is capped at 300,
+  because each page is one body under `Limits.ReleaseJSON`.
+* **E4.** The workflow publishes a prerelease only when the caller
+  passes `prerelease-channels-json`. The default `[]` keeps today's
+  behaviour.
+* **E5.** The winner is chosen on its tag and flags, then validated in
+  full. A failure is an error, never a fallback, and a malformed release
+  elsewhere in the list does not fail the list.
+
 ### 1. The version grammar: `NewSemverPolicy`
 
 ```go
@@ -113,6 +133,8 @@ type SemverOptions struct {
     AllowPrerelease bool
     // Channels lists the admitted prerelease names, most stable first,
     // for example []string{"rc", "beta", "alpha"} (decision Q1).
+    // Amended E2: strictly descending ASCII order; amended E1: discovery
+    // reaches channels through the optional ChannelPolicy.
     Channels []string
 }
 func NewSemverPolicy(o SemverOptions) (VersionPolicy, error)
@@ -155,14 +177,15 @@ type ReleaseLister interface {
   to `ReleaseSource`.
 * **The GitHub source** pages `GET /repos/{owner}/{repo}/releases`, with
   `per_page` at its maximum. It stops at `Limit`, which defaults to 100 and
-  is capped at 300. Every body is bounded by `Limits.ReleaseJSON`, and rate
+  is capped at 300 *(amended E3: `per_page` 30, `Limit` 90 by default)*. Every body is bounded by `Limits.ReleaseJSON`, and rate
   limits are mapped as `Latest`'s are.
 * **Without a channel,** discovery uses `Latest`, exactly as today.
 * **With a channel,** the source must be a `ReleaseLister`; otherwise the
   run fails, naming the missing capability. Discovery then:
   1. drops drafts and releases whose tag the policy refuses or the channel
      does not admit;
-  2. picks the highest by `Compare`;
+  2. picks the highest by `Compare` *(amended E5: on tag and flags alone,
+     then validated in full)*;
   3. requires that one to be immutable. A mutable winner is an error
      (`ErrMutableRelease`), never a reason to fall back to an older
      release.
@@ -189,7 +212,8 @@ These follow from version precedence, with no special case:
 
 ### 5. Publishing prereleases
 
-The reusable workflow accepts a tag of the prerelease grammar. It creates
+The reusable workflow accepts a tag of the prerelease grammar *(amended E4:
+only for the names the caller lists in `prerelease-channels-json`)*. It creates
 the release with `--prerelease` and marks it so it can never become "latest".
 Everything else stays the same:
 

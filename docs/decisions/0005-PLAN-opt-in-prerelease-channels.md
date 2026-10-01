@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-01
 associated-madr: "0005-MADR-opt-in-prerelease-channels.md"
 ---
@@ -407,4 +407,12 @@ func (s *GitHubSource) ListReleases(ctx context.Context, o ListOptions) ([]Relea
 
 ## Execution Record
 
-Nothing has been executed. This PLAN is `proposed`.
+### Approval (2026-10-01)
+
+The owner approved this PLAN and amendments E1–E5 ("proceed, approved").
+
+### Step 1: records (2026-10-01)
+
+* The MADR's Decision Outcome gained the "Amended 2026-10-01" block, with
+  E1–E5 and inline marks in §1, §3 and §5.
+* This PLAN was indexed as `in-progress`.

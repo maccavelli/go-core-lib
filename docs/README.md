@@ -18,6 +18,7 @@
 | 0004 | PLAN | [Implement harness item H4: an end-to-end update of a running copy](decisions/0004-PLAN-h4-running-copy-end-to-end.md) | complete |
 | 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
 | 0005 | MADR | [Offer opt-in prerelease channels without weakening the stable path](decisions/0005-MADR-opt-in-prerelease-channels.md) | accepted |
+| 0005 | PLAN | [Implement opt-in prerelease channels (`v1.3.0`)](decisions/0005-PLAN-opt-in-prerelease-channels.md) | in-progress |
 
 ## I want to…
 
