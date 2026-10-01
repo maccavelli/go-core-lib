@@ -114,3 +114,22 @@ file uses it elsewhere.
 * `make pre-add-check` passed on the file, with v2.14.0.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`, with the test passing.
+
+### Step 3: the pin (2026-10-01)
+
+**What changed.** `golangci-lint@v2.13.2` became `@v2.14.0` in:
+
+* `.github/workflows/ci.yml`, the "vet, gofmt, tidy, lint" step;
+* `scripts/go-precheck.sh`, the install hint;
+* `docs/architecture.md`, "Tooling".
+
+**Checks.**
+
+* `actionlint` is clean, and so is `check-workflows.sh` (all rules, and
+  `--rule expressions` on `ci.yml`). `shellcheck scripts/*.sh` is clean.
+* `make lint` with v2.14.0: `0 issues` on `linux`, `darwin` and `windows`.
+* A repository-wide `grep` for `v2.13.2` finds it only in records:
+  * the 0003 PLAN's history of the pin (lines 420 and 1105);
+  * this PLAN's and its MADR's own account.
+
+  No live configuration names the old version.
