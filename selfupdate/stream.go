@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -64,6 +65,42 @@ func (c *ConfirmNeeded) Cancel(err error) {
 		err = context.Canceled
 	}
 	c.once.Do(func() { c.reply <- confirmReply{err: err} })
+}
+
+type credentialReply struct {
+	cred Credential
+	err  error
+}
+
+// CredentialNeeded asks the host for a credential, as PromptCredential
+// raises it inside a Stream. Request.Cause is non-nil when a credential
+// already sent was refused. The source waits until Supply or Cancel is
+// called, or the run is cancelled. The first reply wins; later ones do
+// nothing (0004-MADR amendment B5).
+type CredentialNeeded struct {
+	// Request describes the request that needs the credential.
+	Request CredentialRequest
+
+	once  sync.Once
+	reply chan credentialReply
+}
+
+func (*CredentialNeeded) interaction() {}
+
+// Supply answers with cred. Its Value is copied, so the host may clear its
+// own buffer afterwards. The source still validates the credential.
+func (c *CredentialNeeded) Supply(cred Credential) {
+	cred.Value = bytes.Clone(cred.Value)
+	c.once.Do(func() { c.reply <- credentialReply{cred: cred} })
+}
+
+// Cancel answers with err, or with ErrNoCredential when err is nil, so a
+// chain moves on to its next provider or the request goes anonymous.
+func (c *CredentialNeeded) Cancel(err error) {
+	if err == nil {
+		err = ErrNoCredential
+	}
+	c.once.Do(func() { c.reply <- credentialReply{err: err} })
 }
 
 // Stream drives one run from an event loop. Start begins the run; the host

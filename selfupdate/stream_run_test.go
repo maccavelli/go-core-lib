@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -313,4 +314,131 @@ func TestStartConfirmerReplaces(t *testing.T) {
 	if fin.Err != nil || !fin.Result.Applied || len(conf.Prompts()) != 1 {
 		t.Fatalf("Finished = %+v, prompts = %d", fin, len(conf.Prompts()))
 	}
+}
+
+// Tests for Step 5: credential prompts through a Stream.
+
+// answerCredentials reads until Finished, giving each CredentialNeeded to
+// answer with its 0-based index.
+func answerCredentials(t *testing.T, s *selfupdate.Stream, answer func(int, *selfupdate.CredentialNeeded)) (int, selfupdate.Finished) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	n := 0
+	for {
+		it, err := s.Next(ctx)
+		if err != nil {
+			t.Fatalf("Next after %d prompts: %v", n, err)
+		}
+		switch v := it.(type) {
+		case *selfupdate.CredentialNeeded:
+			answer(n, v)
+			n++
+		case selfupdate.Finished:
+			return n, v
+		}
+	}
+}
+
+type acceptedTokens struct {
+	n    atomic.Int32
+	last atomic.Value
+}
+
+func (a *acceptedTokens) Accepted(_ context.Context, c selfupdate.Credential) {
+	a.n.Add(1)
+	a.last.Store(string(c.Value))
+}
+
+func TestStreamCredentialPrompt(t *testing.T) {
+	selfupdate.CheckNoLeak(t)
+	gh := e2eServer(t)
+	gh.RequireToken("good")
+	seen := &acceptedTokens{}
+	u, exe := e2eUpdater(t, gh, selfupdate.GitHubOptions{
+		Credentials: selfupdate.ChainCredentials(selfupdate.EnvCredential("", "SELFUPDATE_TEST_UNSET"), selfupdate.PromptCredential()),
+		Observer:    seen,
+	})
+	var causes []error
+	n, fin := answerCredentials(t, selfupdate.Start(context.Background(), u, e2eReq()), func(i int, c *selfupdate.CredentialNeeded) {
+		causes = append(causes, c.Request.Cause)
+		if c.Request.Origin == nil || c.Request.Origin.Host != gh.APIBase.Host {
+			t.Errorf("prompt %d origin = %v, want the API origin", i, c.Request.Origin)
+		}
+		token := "bad"
+		if i > 0 {
+			token = "good"
+		}
+		c.Supply(selfupdate.Credential{Value: []byte(token), Source: "prompt"})
+		c.Supply(selfupdate.Credential{Value: []byte("ignored")}) // must not block
+	})
+	if fin.Err != nil || !fin.Result.Applied {
+		t.Fatalf("Finished = %+v", fin)
+	}
+	if n != 2 || causes[0] != nil || causes[1] == nil {
+		t.Fatalf("prompts = %d, causes = %v; want a first prompt, then one with the refusal", n, causes)
+	}
+	if seen.n.Load() != 1 || seen.last.Load() != "good" {
+		t.Fatalf("observer told %d times, last %v", seen.n.Load(), seen.last.Load())
+	}
+	if got, _ := os.ReadFile(exe); string(got) != string(releaseBody("v1.1.0")(goldenPlatform)) {
+		t.Fatalf("target = %q", got)
+	}
+}
+
+func TestStreamCredentialPerRunOption(t *testing.T) {
+	selfupdate.CheckNoLeak(t)
+	gh := e2eServer(t)
+	gh.RequireToken("good")
+	u, _ := e2eUpdater(t, gh, selfupdate.GitHubOptions{})
+	s := selfupdate.Start(context.Background(), u, e2eReq(), selfupdate.WithCredentials(selfupdate.PromptCredential()))
+	n, fin := answerCredentials(t, s, func(_ int, c *selfupdate.CredentialNeeded) {
+		c.Supply(selfupdate.Credential{Value: []byte("good"), Source: "prompt"})
+	})
+	if n != 1 || fin.Err != nil || !fin.Result.Applied {
+		t.Fatalf("prompts = %d, Finished = %+v", n, fin)
+	}
+	if _, err := u.Run(context.Background(), e2eReq()); err == nil || !strings.Contains(err.Error(), "github http 401") {
+		t.Fatalf("a plain Run after the Stream = %v, want the 401", err)
+	}
+}
+
+func TestCredentialNeededCancel(t *testing.T) {
+	selfupdate.CheckNoLeak(t)
+	t.Run("nil goes anonymous", func(t *testing.T) {
+		gh := e2eServer(t)
+		gh.RequireToken("good")
+		u, exe := e2eUpdater(t, gh, selfupdate.GitHubOptions{Credentials: selfupdate.PromptCredential()})
+		_, fin := answerCredentials(t, selfupdate.Start(context.Background(), u, e2eReq()), func(_ int, c *selfupdate.CredentialNeeded) {
+			c.Cancel(nil)
+		})
+		if fin.Err == nil || !strings.Contains(fin.Err.Error(), "github http 401") {
+			t.Fatalf("Finished = %+v, want the anonymous 401", fin)
+		}
+		if got, _ := os.ReadFile(exe); string(got) != "old-bytes" {
+			t.Fatalf("target changed: %q", got)
+		}
+	})
+	t.Run("an error ends the run", func(t *testing.T) {
+		gh := e2eServer(t)
+		u, _ := e2eUpdater(t, gh, selfupdate.GitHubOptions{Credentials: selfupdate.PromptCredential()})
+		refused := errors.New("the user closed the dialog")
+		_, fin := answerCredentials(t, selfupdate.Start(context.Background(), u, e2eReq()), func(_ int, c *selfupdate.CredentialNeeded) {
+			c.Cancel(refused)
+		})
+		if !errors.Is(fin.Err, refused) {
+			t.Fatalf("Finished = %+v, want the host's error", fin)
+		}
+	})
+	t.Run("Stream.Cancel while pending", func(t *testing.T) {
+		gh := e2eServer(t)
+		u, _ := e2eUpdater(t, gh, selfupdate.GitHubOptions{Credentials: selfupdate.PromptCredential()})
+		s := selfupdate.Start(context.Background(), u, e2eReq())
+		_, fin := answerCredentials(t, s, func(_ int, _ *selfupdate.CredentialNeeded) {
+			s.Cancel()
+		})
+		if !errors.Is(fin.Err, context.Canceled) {
+			t.Fatalf("Finished = %+v, want context.Canceled", fin)
+		}
+	})
 }

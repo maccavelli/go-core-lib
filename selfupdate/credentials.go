@@ -54,6 +54,42 @@ var ErrNoCredential = errors.New("selfupdate: no credential")
 
 type chainCredentials []CredentialProvider
 
+// PromptCredential returns a provider that asks the host. Inside a run
+// started with Start, it delivers a *CredentialNeeded and waits for the
+// reply or for the run to end; anywhere else it returns ErrNoCredential at
+// once, so one chain serves Run and Start alike. A refused credential
+// prompts once more, with Cause set. Use it last in a chain, after the
+// environment, so a configured token is never prompted for:
+//
+//	ChainCredentials(EnvCredential("", "GH_TOKEN", "GITHUB_TOKEN"), PromptCredential())
+//
+// It finds the run's Stream through the context it is called with
+// (0004-MADR amendment B1).
+func PromptCredential() CredentialProvider {
+	return promptCredential{}
+}
+
+type promptCredential struct{}
+
+func (promptCredential) Credential(ctx context.Context, r CredentialRequest) (Credential, error) {
+	s, ok := ctx.Value(streamKey{}).(*Stream)
+	if !ok {
+		return Credential{}, ErrNoCredential
+	}
+	if r.Origin != nil {
+		origin := *r.Origin
+		r.Origin = &origin
+	}
+	req := &CredentialNeeded{Request: r, reply: make(chan credentialReply, 1)}
+	s.push(req)
+	select {
+	case rep := <-req.reply:
+		return rep.cred, rep.err
+	case <-ctx.Done():
+		return Credential{}, ctx.Err()
+	}
+}
+
 // CredentialedSource is a ReleaseSource that can take a per-run credential
 // provider. WithCredentials returns a copy whose provider is p, with fresh
 // credential state, and leaves the receiver unchanged. RunWith uses it for

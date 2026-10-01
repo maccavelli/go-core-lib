@@ -789,3 +789,75 @@ approval), plus four for what this step added. None survived:
   `go test -race -count=1 ./...`.
 * No deviation. The `closed` channel is how the PLAN's "safe from several
   goroutines" is met.
+
+### Step 5: credential prompts (2026-10-01)
+
+**What changed.**
+
+* **`stream.go`** adds `CredentialNeeded`, with `Supply` and `Cancel`, on a
+  one-slot reply channel and a `sync.Once`.
+  * `Cancel(nil)` returns `ErrNoCredential` (B5).
+  * `Supply` copies `Credential.Value` before replying, so a host may clear
+    its input buffer afterwards. `Credential`'s doc already asks callers not
+    to modify the value, and a prompt host is exactly the caller likely to
+    zero it. The PLAN did not say this.
+* **`credentials.go`** adds `PromptCredential()`.
+  * It finds the run's `Stream` under `streamKey`. Without one, it returns
+    `ErrNoCredential` at once.
+  * It copies `Request.Origin`, then queues `*CredentialNeeded` and waits
+    for the reply or the context.
+  * Its doc comment gives the recommended chain: the environment first, the
+    prompt last.
+* No source change was needed: `GitHubSource` already calls its provider
+  with the run's context. A refusal re-prompts once through the existing
+  `refresh`, with `Cause` set.
+
+**Tests.**
+
+* **`stream_test.go`:**
+  * `TestCredentialNeededRepliesOnce`: the first `Supply` wins, later
+    replies do not block, and the supplied value is unaffected when the host
+    overwrites its buffer. `Cancel(nil)` gives `ErrNoCredential`.
+  * `TestPromptCredentialWithoutStream`.
+  * `TestPromptCredentialCopiesOrigin`.
+* **`stream_run_test.go`:**
+  * `TestStreamCredentialPrompt`. The server requires `good`, and the chain
+    is the environment, then the prompt:
+    * the first prompt has a nil `Cause` and gets `bad`;
+    * the second has a `Cause` and gets `good`;
+    * a repeated `Supply` is ignored;
+    * both prompts name the API origin;
+    * the observer is told once, with `good`, and the run applies.
+  * `TestStreamCredentialPerRunOption`: the prompt as
+    `Start(…, WithCredentials(PromptCredential()))`, then a plain `Run`
+    gets the 401.
+  * `TestCredentialNeededCancel`:
+    * `Cancel(nil)` goes anonymous and gets the 401, with the target
+      unchanged;
+    * `Cancel(err)` ends the run with `err`;
+    * `Stream.Cancel` while a request is pending gives `context.Canceled`.
+
+**Mutation proofs.** The PLAN's four, plus two for what this step added.
+None survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `PromptCredential` ignores the context's `Stream` | `TestStreamCredentialPrompt`: `Finished = {… Operation:none …}` with the 401 |
+| `CredentialNeeded.Cancel(nil)` returns `context.Canceled` | `Cancel(nil) reply = context canceled, want ErrNoCredential` |
+| the prompt ignores `ctx.Done()` | `Next after 1 prompts: context deadline exceeded` |
+| `Supply` without `sync.Once` | `a second reply blocked` |
+| `Supply` does not copy the secret | `reply = "Xirst", <nil>; want the first Supply, copied` |
+| the origin is not copied | `origin 0x… https://api.github.com, want a copy of 0x…` |
+
+The first spec for the secret-copy mutation left `bytes` unused and did not
+compile. `bytes.TrimSpace`, which returns a sub-slice of the same memory,
+replaced it, and was killed.
+
+**Checks.**
+
+* `make pre-add-check` passed on the four files, and `make apicheck`
+  reported `compatible with v1.1.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+* No deviation. The value copy in `Supply` is recorded above as a choice
+  the PLAN left open.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -164,5 +165,72 @@ func TestStartInvalid(t *testing.T) {
 	}
 	if len(*env.log) != 0 {
 		t.Fatalf("a run started: %v", *env.log)
+	}
+}
+
+// Tests for Step 5's reply and provider mechanics.
+
+func TestCredentialNeededRepliesOnce(t *testing.T) {
+	checkNoLeak(t)
+	c := &CredentialNeeded{reply: make(chan credentialReply, 1)}
+	secret := []byte("first")
+	done := make(chan struct{})
+	go func() {
+		c.Supply(Credential{Value: secret, Source: "test"})
+		c.Supply(Credential{Value: []byte("second")})
+		c.Cancel(errors.New("late"))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second reply blocked")
+	}
+	secret[0] = 'X' // the host clears its buffer
+	if r := <-c.reply; r.err != nil || string(r.cred.Value) != "first" {
+		t.Fatalf("reply = %q, %v; want the first Supply, copied", r.cred.Value, r.err)
+	}
+	cancelled := &CredentialNeeded{reply: make(chan credentialReply, 1)}
+	cancelled.Cancel(nil)
+	if r := <-cancelled.reply; !errors.Is(r.err, ErrNoCredential) {
+		t.Fatalf("Cancel(nil) reply = %v, want ErrNoCredential", r.err)
+	}
+}
+
+func TestPromptCredentialWithoutStream(t *testing.T) {
+	checkNoLeak(t)
+	_, err := PromptCredential().Credential(context.Background(), CredentialRequest{})
+	if !errors.Is(err, ErrNoCredential) {
+		t.Fatalf("outside a Stream = %v, want ErrNoCredential", err)
+	}
+}
+
+// TestPromptCredentialCopiesOrigin: the host gets its own copy of the
+// origin, so changing it cannot change the source's view.
+func TestPromptCredentialCopiesOrigin(t *testing.T) {
+	checkNoLeak(t)
+	s := newTestStream()
+	ctx := context.WithValue(context.Background(), streamKey{}, s)
+	origin := &url.URL{Scheme: "https", Host: "api.github.com"}
+	got := make(chan error, 1)
+	go func() {
+		_, err := PromptCredential().Credential(ctx, CredentialRequest{Origin: origin})
+		got <- err
+	}()
+	it, err := s.Next(context.Background())
+	req, ok := it.(*CredentialNeeded)
+	if err != nil || !ok {
+		t.Fatalf("Next = %#v, %v", it, err)
+	}
+	if req.Request.Origin == origin || req.Request.Origin.String() != origin.String() {
+		t.Fatalf("origin %p %v, want a copy of %p %v", req.Request.Origin, req.Request.Origin, origin, origin)
+	}
+	req.Request.Origin.Host = "elsewhere"
+	if origin.Host != "api.github.com" {
+		t.Fatal("changing the request's origin changed the source's")
+	}
+	req.Supply(Credential{Value: []byte("tok"), Source: "test"})
+	if err := <-got; err != nil {
+		t.Fatal(err)
 	}
 }
