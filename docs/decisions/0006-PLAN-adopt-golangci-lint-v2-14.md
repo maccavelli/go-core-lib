@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0006-MADR-adopt-golangci-lint-v2-14.md"
 ---
@@ -133,3 +133,17 @@ file uses it elsewhere.
   * this PLAN's and its MADR's own account.
 
   No live configuration names the old version.
+
+### Step 4: close-out (2026-10-01)
+
+The owner pushed Steps 1–3, together with the paused 0005 Step 2 code, which
+the owner committed as `4c271e0`. CI run `36922093599` on `4c271e038604`
+concluded `success` on `ubuntu-24.04`, `macos-15` and `windows-2025`.
+
+The Linux log shows
+`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0`,
+then `0 issues.` for `GOOS=linux`, `darwin` and `windows`.
+
+Every criterion is met, so this PLAN is `complete`.
+[0005-PLAN-opt-in-prerelease-channels.md](0005-PLAN-opt-in-prerelease-channels.md)
+resumes.

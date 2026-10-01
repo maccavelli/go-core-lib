@@ -181,9 +181,9 @@ type ChannelPolicy interface {
 | :--- | :--- |
 | the order check removed | the `["beta","nightly"]` refusal |
 | build metadata accepted | `v1.2.3+meta` |
-| `N` allows a leading zero | `rc.01` |
+| ~~`N` allows a leading zero~~ *(D2: equivalent; replaced by "`N` need not be numeric")* | ~~`rc.01`~~ `rc.x` |
 | `Admits` compares indexes the wrong way | `"beta"` admitting `alpha` |
-| the options slice is not copied | the defensive-copy test |
+| ~~the options slice is not copied~~ *(D1: not expressible; the policy keeps no slice)* | the defensive-copy test |
 
 ### Step 3: the request field and the cache (`selfupdate/types.go`, `version.go`, `checker.go`, `checkcache.go`)
 
@@ -416,3 +416,61 @@ The owner approved this PLAN and amendments E1–E5 ("proceed, approved").
 * The MADR's Decision Outcome gained the "Amended 2026-10-01" block, with
   E1–E5 and inline marks in §1, §3 and §5.
 * This PLAN was indexed as `in-progress`.
+
+### Step 2: the policy (2026-10-01)
+
+The code is commit `4c271e0`, which the owner made and pushed from the
+working tree this step left. Its content is what is described and tested
+here. Work paused after the tests and before the commit, while
+[0006-PLAN-adopt-golangci-lint-v2-14.md](0006-PLAN-adopt-golangci-lint-v2-14.md)
+cleared a lint upgrade that had blocked every Go commit.
+
+**What changed.**
+
+* **`selfupdate/types.go`** adds `ChannelPolicy` (E1).
+* **`selfupdate/version.go`** adds:
+  * `channelNameRe` (`^[a-z][a-z0-9]{0,15}$`) and `prereleaseNumRe`
+    (`^(0|[1-9]\d*)$`; v2.14.0's gocritic `regexpSimplify` asked for `\d`);
+  * `SemverOptions` and `NewSemverPolicy`. Construction checks names,
+    duplicates and strictly descending ASCII order (E2). The ranks are
+    built into a map, so the caller's slice is never kept;
+  * `Validate`: the strict core plus an optional `-NAME.N`, with no build
+    metadata, then `semver.IsValid`;
+  * `Compare`, which is `semver.Compare` after validation;
+  * `ValidChannel`, and `Admits`, which uses rank order.
+* **`selfupdate/semver_policy_test.go`** (new) has five tests:
+  * the option refusals, each with its message;
+  * the defensive copy;
+  * a 19-row `Validate` table for the channel and stable policies;
+  * `Compare` order, both ways;
+  * `Admits` across every channel and tag.
+
+**Mutation proofs:**
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the order check removed | `stability not in ASCII order: err = <nil>` |
+| build metadata accepted (the core cut before `+`) | `Validate("v1.2.3+meta") accepted=true` |
+| `Admits` compares ranks the wrong way | `Admits("beta", "v1.0.0-rc.1") = false, want true` |
+| an unknown prerelease name accepted | `Validate("v1.2.3-RC.1") accepted=true` |
+| `N` need not be numeric (`^[0-9a-z]+$`) | `Validate("v1.2.3-rc.x") accepted=true` |
+
+**Deviation D1 (2026-10-01).** The PLAN's "the options slice is not copied"
+cannot be written as one mutation: the policy never stores the slice, only
+a rank map built during construction. `TestSemverPolicyDoesNotShareChannels`
+pins the property the mutation was meant to guard. Editing the caller's
+slice after construction neither breaks `rc` nor admits a new name.
+
+**Deviation D2 (2026-10-01).** "`N` allows a leading zero" survived: the
+test passed. `semver.IsValid` already refuses `rc.01`, because SemVer §9
+forbids leading zeroes in numeric identifiers, so the regex's leading-zero
+rule is a second layer. What only the regex enforces is that `N` is
+numeric: SemVer allows `rc.x`. That mutation replaced it, and was killed.
+
+**Checks.**
+
+* The tests passed locally, and on the Windows test host, before the regex
+  was simplified. The simplification is equivalent, and the tests passed
+  again afterwards.
+* With v2.14.0, `make lint` reports `0 issues` on all three targets.
+* `make apicheck`: `compatible with v1.2.0`.

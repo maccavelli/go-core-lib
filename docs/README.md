@@ -20,7 +20,7 @@
 | 0005 | MADR | [Offer opt-in prerelease channels without weakening the stable path](decisions/0005-MADR-opt-in-prerelease-channels.md) | accepted |
 | 0005 | PLAN | [Implement opt-in prerelease channels (`v1.3.0`)](decisions/0005-PLAN-opt-in-prerelease-channels.md) | in-progress |
 | 0006 | MADR | [Adopt golangci-lint v2.14.0, clearing its one finding at the source](decisions/0006-MADR-adopt-golangci-lint-v2-14.md) | accepted |
-| 0006 | PLAN | [Implement the golangci-lint v2.14.0 adoption](decisions/0006-PLAN-adopt-golangci-lint-v2-14.md) | in-progress |
+| 0006 | PLAN | [Implement the golangci-lint v2.14.0 adoption](decisions/0006-PLAN-adopt-golangci-lint-v2-14.md) | complete |
 
 ## I want to…
 
