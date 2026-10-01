@@ -13,6 +13,7 @@
 | 0004 | MADR | [Evolve `selfupdate` into a layered, framework-neutral update toolkit](decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md) | accepted |
 | 0004 | PLAN | [Implement Phase 0: the `v1.0.1` defect release](decisions/0004-PLAN-v1-0-1-defect-release.md) | complete |
 | 0004 | PLAN | [Implement Phase 1: the `v1.1.0` core API](decisions/0004-PLAN-v1-1-0-core-api.md) | complete |
+| 0004 | PLAN | [Implement Phase 2 core: per-run options and the interaction `Stream` (`v1.2.0`)](decisions/0004-PLAN-v1-2-0-interaction-stream.md) | in-progress |
 | 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
 
 ## I want to…

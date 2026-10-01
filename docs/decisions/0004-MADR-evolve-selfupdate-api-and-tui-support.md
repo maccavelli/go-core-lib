@@ -553,6 +553,35 @@ event loop must pull from the run. ocp-login does this by hand with a
 That pattern is right; it should live in the library once, not in each
 program.
 
+**Amended 2026-10-01 by [0004-PLAN-v1-2-0-interaction-stream.md](0004-PLAN-v1-2-0-interaction-stream.md).**
+
+* **The PLAN's shapes supersede the sketches** below where they differ, as
+  for §3.
+* **The amendments.** The owner approved six with the PLAN. Each is marked
+  where it applies:
+  * **B1.** Mid-run credentials use both candidates, one job each:
+    * `WithCredentials(p)` needs the source to implement
+      `CredentialedSource`, whose `WithCredentials(p)` returns a per-run
+      copy with `p` in its provider slot and fresh credential state;
+    * the prompt is the provider `PromptCredential()`, which finds the
+      run's `Stream` through the run's context, and returns
+      `ErrNoCredential` outside one.
+  * **B2.** `Start(ctx, u, req, opts ...RunOption)`. There `WithReporter`
+    adds a reporter after the `Stream`'s, and `WithConfirmer` replaces
+    `ConfirmNeeded`. The `Updater`'s own reporter and confirmer are not
+    used.
+  * **B3.** `WithProgressInterval(d)` is a `RunOption`, which keeps
+    amendment A1's promise that the adapter sets its own interval.
+  * **B4.** `Progressed` carries every event in order. Only
+    `EventProgress` is coalesced, and only over a progress event that is
+    still the newest undelivered item.
+  * **B5.** `ConfirmNeeded.Cancel(nil)` fails with `context.Canceled`.
+    `CredentialNeeded.Cancel(nil)` returns `ErrNoCredential`. The first
+    reply wins.
+  * **B6.** `Next` returns `io.EOF` only after `Finished`, and
+    `ctx.Err()` without consuming when its context ends. Breaking out of
+    `All` does not cancel the run.
+
 **Core (`selfupdate`, standard library).**
 
 ```go
@@ -563,13 +592,13 @@ func WithCredentials(CredentialProvider) RunOption
 func (u *Updater) RunWith(ctx context.Context, req Request, opts ...RunOption) (Result, error)
 
 type Stream struct{ /* reliable lifecycle queue + latest-wins progress slot */ }
-func Start(ctx context.Context, u *Updater, req Request) *Stream
+func Start(ctx context.Context, u *Updater, req Request) *Stream // amended B2: opts ...RunOption
 func (s *Stream) Next(ctx context.Context) (Interaction, error) // io.EOF after Finished
 func (s *Stream) All(ctx context.Context) iter.Seq[Interaction]
 func (s *Stream) Cancel()
 
 type Interaction interface{ interaction() }
-type Progressed struct{ Event Event }
+type Progressed struct{ Event Event } // amended B4: every event; only progress coalesces
 type ConfirmNeeded struct{ Prompt Prompt /* reply slot */ }
 func (c *ConfirmNeeded) Answer(ok bool)
 func (c *ConfirmNeeded) Cancel(err error)
@@ -595,6 +624,7 @@ type Finished struct {
   reaches a source constructed before the run is left to the phase's PLAN.
   The two candidates are a request-scoped context value, and an optional
   `ReleaseSource` interface that takes the provider per call.
+  *(Amended B1: both, one job each.)*
 * **Cancellation.** `Stream.Cancel` cancels the run and still delivers
   `Finished`. That fixes O6 by construction: the UI waits for the run to
   finish instead of reporting "cancelled" while the run continues.

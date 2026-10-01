@@ -2411,3 +2411,10 @@ The Ubuntu log shows:
 Every acceptance criterion in Verification is met, so this PLAN is
 `complete`. `v1.1.0` is not tagged: that waits for the owner's ask (Rollout
 and Rollback).
+
+### Release (2026-10-01)
+
+The owner pushed `96b3096` and tagged `v1.1.0` on it, an annotated tag. CI
+concluded `success` on all three operating systems for both pushes: run
+`36802910523` on `main` and run `36802931390` on the tag. On the tag run, the
+API gate compared the tree with `v1.1.0` itself, which Step 12 predicted.
