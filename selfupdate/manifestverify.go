@@ -45,7 +45,7 @@ func (f ManifestVerifierFunc) VerifyManifest(ctx context.Context, v ManifestVeri
 
 // runManifestVerifiers runs each verifier in order. A failure always
 // matches ErrIntegrity.
-func (u *Updater) runManifestVerifiers(ctx context.Context, req Request, rel Release, sel Selection, manifest []byte) error {
+func (u *run) runManifestVerifiers(ctx context.Context, req Request, rel Release, sel Selection, manifest []byte) error {
 	for _, v := range u.manifestVfy {
 		err := v.VerifyManifest(ctx, ManifestVerification{
 			Product:   req.Product,
@@ -64,7 +64,7 @@ func (u *Updater) runManifestVerifiers(ctx context.Context, req Request, rel Rel
 // openAsset returns the OpenAsset function for rel: an exact, unique name;
 // a positive limit capped at Limits.Executable; and a body that must match
 // the advertised size and, when present, the GitHub digest.
-func (u *Updater) openAsset(rel Release) func(ctx context.Context, name string, limit int64) (io.ReadCloser, error) {
+func (u *run) openAsset(rel Release) func(ctx context.Context, name string, limit int64) (io.ReadCloser, error) {
 	return func(ctx context.Context, name string, limit int64) (io.ReadCloser, error) {
 		if limit <= 0 {
 			return nil, fmt.Errorf("selfupdate: asset limit must be positive")

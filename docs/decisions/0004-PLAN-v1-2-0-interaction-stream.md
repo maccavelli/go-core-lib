@@ -578,3 +578,56 @@ flexibility, and idiomatic/modular design is optimal."
   "Release (2026-10-01)" entry.
 * `docs/architecture.md` names `v1.1.0` on `96b3096` as the current
   release.
+
+### Step 2: per-run options (2026-10-01)
+
+**What changed.**
+
+* **`runoptions.go`** (new) adds `RunOption`, `WithReporter`,
+  `WithConfirmer`, `WithProgressInterval` and `Updater.RunWith`.
+  * An unexported `runScope` collects the options, applied in order.
+  * `run` embeds `*Updater` and shadows `source`, `reporter`, `confirmer` and
+    `progress`. `newRun` fills it from the `Updater`, then from the scope.
+  * `RunWith` validates every option before it takes the `running` guard,
+    then calls `run.execute`. A nil option is refused with
+    `selfupdate: run option is nil`.
+* **`updater.go`.** `Run` is `RunWith(ctx, req)`. The run's methods take
+  `*run`, and discovery uses `run.checker()`, a `Checker` over the run's
+  source.
+* **`manifestverify.go`.** `runManifestVerifiers` and `openAsset` take `*run`.
+* **The PLAN said nine methods; it is ten.** `runVerifiers` also moved,
+  because it hands binary verifiers `openAsset`, which reads the run's
+  source. The PLAN's list missed it because it reads the source only through
+  that call.
+* **`manifestverify_test.go`.** Its one direct call to the internal
+  `u.openAsset(rel)` became `u.newRun(runScope{}).openAsset(rel)`. That is a
+  call site, not an assertion. No other existing test changed, and the
+  existing suite passed before any new test was added.
+
+**Tests** (`runoptions_test.go`): the PLAN's six,
+`TestRunWithOverridesReporter`, `…OverridesConfirmer`, `…ProgressInterval`,
+`…LastOptionWins`, `…RejectsInvalidOptions` (five cases, including a nil
+option) and `…SharesRunGuard`.
+
+**Mutation proofs.** Six, none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `report` reads the `Updater`'s reporter | `override got [], configured got [resolving-target … complete]` |
+| the confirm path reads the `Updater`'s confirmer | `override calls = 0, configured log = [… Confirm …]` |
+| `newProgress` reads `Config.ProgressInterval` | `WithProgressInterval(1ns) reported no progress on an Updater configured with zero` |
+| options applied in reverse | `first got [resolving-target … complete], last got []` |
+| the nil-reporter check removed | `nil reporter: err = <nil>, want "selfupdate: WithReporter: reporter is nil"` |
+| `RunWith` skips the guard | `RunWith during a run = <nil>, want ErrConcurrentUpdate` |
+
+A seventh, "discovery uses the `Updater`'s source", cannot be observed until
+an option changes the source. It moved to Step 3.
+
+**Checks.**
+
+* `make pre-add-check` passed on the five files, and `make apicheck`
+  reported `compatible with v1.1.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+* No deviation. The tenth method and the one call site above are recorded
+  here as facts the PLAN understated.

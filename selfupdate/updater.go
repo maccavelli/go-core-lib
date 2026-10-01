@@ -88,15 +88,12 @@ func New(cfg Config) (*Updater, error) {
 }
 
 // Run executes one self-update request. The library never calls os.Exit.
+// It is RunWith with no options.
 func (u *Updater) Run(ctx context.Context, req Request) (Result, error) {
-	if !u.running.CompareAndSwap(false, true) {
-		return Result{}, ErrConcurrentUpdate
-	}
-	defer u.running.Store(false)
-	return u.execute(ctx, req)
+	return u.RunWith(ctx, req)
 }
 
-func (u *Updater) execute(ctx context.Context, req Request) (res Result, err error) {
+func (u *run) execute(ctx context.Context, req Request) (res Result, err error) {
 	// A failed run ends with EventFailed, except when the product name is
 	// not safe to report or check mode found an update (0004-MADR G5, A7).
 	defer func() {
@@ -128,7 +125,7 @@ func (u *Updater) execute(ctx context.Context, req Request) (res Result, err err
 	}
 	// Discovery is shared with Checker.Check, so Run and Check cannot
 	// disagree (0004-MADR G3).
-	rel, sel, op, err := u.Checker().discover(ctx, req)
+	rel, sel, op, err := u.checker().discover(ctx, req)
 	if err != nil {
 		return Result{}, wrapRun(req, err)
 	}
@@ -181,7 +178,7 @@ func (u *Updater) execute(ctx context.Context, req Request) (res Result, err err
 	return u.apply(ctx, req, result, target, rel, sel)
 }
 
-func (u *Updater) apply(ctx context.Context, req Request, result Result, target Target, rel Release, sel Selection) (resultOut Result, err error) {
+func (u *run) apply(ctx context.Context, req Request, result Result, target Target, rel Release, sel Selection) (resultOut Result, err error) {
 	resultOut = result
 	sess, err := u.installer.Begin(ctx, target)
 	if err != nil {
@@ -382,7 +379,7 @@ func (u *Updater) runProbes(ctx context.Context, req Request, rel Release, stage
 	return nil
 }
 
-func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, manifestDigest, ghDigest string) error {
+func (u *run) runVerifiers(ctx context.Context, req Request, rel Release, sel Selection, path, digest, manifestDigest, ghDigest string) error {
 	for _, v := range u.verifiers {
 		err := v.Verify(ctx, Verification{
 			Product: req.Product, Release: rel, Selection: sel,
@@ -399,14 +396,14 @@ func (u *Updater) runVerifiers(ctx context.Context, req Request, rel Release, se
 	return nil
 }
 
-func (u *Updater) report(ctx context.Context, ev Event) error {
+func (u *run) report(ctx context.Context, ev Event) error {
 	return u.reporter.Report(ctx, ev)
 }
 
 // reportOutcome delivers an advisory event: one that reports something
 // that has already happened. It is delivered even after the caller's
 // cancellation, and a reporter error on it is ignored (0004-MADR A7).
-func (u *Updater) reportOutcome(ctx context.Context, ev Event) {
+func (u *run) reportOutcome(ctx context.Context, ev Event) {
 	advisory(u.reporter.Report(context.WithoutCancel(ctx), ev))
 }
 
@@ -447,7 +444,7 @@ func failureClass(err error) string {
 // downloadProgress throttles EventProgress for one binary download
 // (0004-MADR G5, amendment A1).
 type downloadProgress struct {
-	u        *Updater
+	u        *run
 	ctx      context.Context
 	template Event
 	last     time.Time
@@ -455,7 +452,7 @@ type downloadProgress struct {
 
 // newProgress returns nil when progress is disabled. Otherwise it reports
 // the first event, at zero bytes.
-func (u *Updater) newProgress(ctx context.Context, req Request, rel Release, sel Selection) *downloadProgress {
+func (u *run) newProgress(ctx context.Context, req Request, rel Release, sel Selection) *downloadProgress {
 	if u.progress <= 0 {
 		return nil
 	}

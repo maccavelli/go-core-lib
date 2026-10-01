@@ -158,7 +158,7 @@ func TestOpenAssetEnforcesSize(t *testing.T) {
 	for id := int64(10); id <= 15; id++ {
 		env.src.bodies[id] = body
 	}
-	open := u.openAsset(rel)
+	open := u.newRun(runScope{}).openAsset(rel)
 	readAll := func(name string, limit int64) error {
 		rc, err := open(context.Background(), name, limit)
 		if err != nil {
