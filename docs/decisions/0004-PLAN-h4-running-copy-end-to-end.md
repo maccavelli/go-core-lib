@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
@@ -409,5 +409,18 @@ different error, and the case's exact-error assertion caught it:
   `docs/architecture.md` resolve.
 * The Windows test host passed in Steps 2 and 3. Step 4 changed only
   documentation.
-* **Not yet:** CI on the pushed tree, with both tests passing on all three
-  legs. This PLAN stays `in-progress` until then.
+* **CI on the pushed tree:** see the close-out below.
+
+### Close-out (2026-10-01)
+
+The owner pushed Steps 1–4 (`763c2ff`..`d2ca2ab`). CI run `36890946949` on
+`d2ca2ab` concluded `success` on `ubuntu-24.04`, `macos-15` and
+`windows-2025`.
+
+* `TestE2EUpdateRunningCopy` and `TestE2ERunningCopyRefusals` have no skip
+  path. A missing `go` command fails them, so a passing `go test` on each leg
+  means both ran there.
+* On `windows-2025` that includes the pending-backup branch.
+
+Every acceptance criterion is met, so this PLAN is `complete`. With it,
+every item of the MADR's §8 harness, H1 to H7, is done.

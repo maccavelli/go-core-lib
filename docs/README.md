@@ -15,7 +15,7 @@
 | 0004 | PLAN | [Implement Phase 1: the `v1.1.0` core API](decisions/0004-PLAN-v1-1-0-core-api.md) | complete |
 | 0004 | PLAN | [Implement Phase 2 core: per-run options and the interaction `Stream` (`v1.2.0`)](decisions/0004-PLAN-v1-2-0-interaction-stream.md) | complete |
 | 0004 | PLAN | [Implement harness item H2: CI fuzzing and the manifest differential](decisions/0004-PLAN-h2-fuzzing-and-manifest-differential.md) | complete |
-| 0004 | PLAN | [Implement harness item H4: an end-to-end update of a running copy](decisions/0004-PLAN-h4-running-copy-end-to-end.md) | in-progress |
+| 0004 | PLAN | [Implement harness item H4: an end-to-end update of a running copy](decisions/0004-PLAN-h4-running-copy-end-to-end.md) | complete |
 | 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
 
 ## I want to…
