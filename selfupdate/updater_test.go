@@ -60,6 +60,13 @@ func (s *scriptSource) ByTag(context.Context, string) (Release, error) {
 	s.note("ByTag")
 	return s.rel, s.err
 }
+
+// ListReleases lists the one scripted release, so a channel request
+// reaches discovery (0005-PLAN Step 5).
+func (s *scriptSource) ListReleases(context.Context, ListOptions) ([]Release, error) {
+	s.note("ListReleases")
+	return []Release{s.rel}, s.err
+}
 func (s *scriptSource) OpenAsset(_ context.Context, _ Release, a Asset) (io.ReadCloser, error) {
 	s.note(fmt.Sprintf("OpenAsset:%d", a.ID))
 	if err := s.openErr[a.ID]; err != nil {

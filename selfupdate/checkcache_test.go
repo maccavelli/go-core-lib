@@ -53,7 +53,7 @@ func cacheEnv(t *testing.T) (*Checker, *scriptSource, CheckRequest, CheckRequest
 func networkCalls(src *scriptSource) int {
 	n := 0
 	for _, c := range src.calls {
-		if c == "Latest" || c == "ByTag" {
+		if c == "Latest" || c == "ByTag" || c == "ListReleases" {
 			n++
 		}
 	}

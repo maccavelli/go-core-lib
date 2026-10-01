@@ -383,6 +383,21 @@ func mapReleaseUnchecked(raw githubReleaseJSON) Release {
 	return rel
 }
 
+// validateReleaseStructure is the structure check mapRelease applies, plus
+// the identity validateFetchedRelease requires, for a listed release that
+// discovery has chosen.
+func validateReleaseStructure(rel Release) error {
+	if rel.ID <= 0 || rel.Tag == "" {
+		return fmt.Errorf("selfupdate: release metadata is incomplete")
+	}
+	for _, a := range rel.Assets {
+		if err := validateAssetStructure(a); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // mapRelease checks only the structure of every asset. State, size and digest
 // are validated for the selected binary and manifest alone, by the Updater,
 // so an unrelated extra asset cannot make a release unusable (0003-MADR A1).

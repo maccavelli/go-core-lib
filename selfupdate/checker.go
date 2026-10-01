@@ -3,6 +3,8 @@ package selfupdate
 import (
 	"context"
 	"fmt"
+
+	"golang.org/x/mod/semver"
 )
 
 // CheckerConfig composes a Checker: the discovery half of Config, with no
@@ -161,10 +163,13 @@ func (c *Checker) discover(ctx context.Context, req Request) (Release, Selection
 	if !rel.Immutable {
 		return Release{}, Selection{}, OperationNone, fmt.Errorf("selfupdate: release %q is not immutable: %w", rel.Tag, ErrMutableRelease)
 	}
-	if rel.Draft || rel.Prerelease {
+	if rel.Draft || (rel.Prerelease && req.Channel == "") {
 		return Release{}, Selection{}, OperationNone, fmt.Errorf("selfupdate: release %q is not a stable published release", rel.Tag)
 	}
 	if err := c.versions.Validate(rel.Tag); err != nil {
+		return Release{}, Selection{}, OperationNone, err
+	}
+	if err := c.checkChannel(req.Channel, rel); err != nil {
 		return Release{}, Selection{}, OperationNone, err
 	}
 	sel, err := c.assets.Select(rel, req.Product, req.Platform)
@@ -187,7 +192,72 @@ func (c *Checker) discover(ctx context.Context, req Request) (Release, Selection
 	return rel, sel, op, nil
 }
 
+// checkChannel applies a ChannelPolicy's checks to a release, on every
+// channel, the stable one included. Its prerelease flag must agree with its
+// tag: an immutable release's flag can still be edited, and its tag cannot,
+// so a disagreement means the flag was changed after publication
+// (0005-MADR §3). A named channel must admit the tag. A plain policy has no
+// channels and decides for itself (0004-MADR G2; 0005-PLAN deviation D4).
+func (c *Checker) checkChannel(channel string, rel Release) error {
+	cp, ok := c.versions.(ChannelPolicy)
+	if !ok {
+		if channel != "" {
+			return fmt.Errorf("selfupdate: release %q is not on channel %q", rel.Tag, channel)
+		}
+		return nil
+	}
+	if (semver.Prerelease(rel.Tag) != "") != rel.Prerelease {
+		return fmt.Errorf("selfupdate: release %q has a prerelease flag that disagrees with its tag", rel.Tag)
+	}
+	if channel != "" && !cp.Admits(channel, rel.Tag) {
+		return fmt.Errorf("selfupdate: release %q is not on channel %q", rel.Tag, channel)
+	}
+	return nil
+}
+
+// channelRelease is discovery on a channel: the highest admissible release
+// the source lists, chosen on its tag and flags alone, then checked in full.
+// A chosen release that fails a check is an error, never a reason to
+// install an older one (0005-MADR §3, amendment E5).
+func (c *Checker) channelRelease(ctx context.Context, channel string) (Release, error) {
+	lister, ok := c.source.(ReleaseLister)
+	if !ok {
+		return Release{}, fmt.Errorf("selfupdate: channel %q needs a source that lists releases", channel)
+	}
+	cp, ok := c.versions.(ChannelPolicy)
+	if !ok {
+		return Release{}, fmt.Errorf("selfupdate: channel %q is not offered by the version policy", channel)
+	}
+	rels, err := lister.ListReleases(ctx, ListOptions{})
+	if err != nil {
+		return Release{}, err
+	}
+	best := -1
+	for i, r := range rels {
+		if r.Draft || cp.Validate(r.Tag) != nil || c.checkChannel(channel, r) != nil {
+			continue
+		}
+		if best >= 0 {
+			if cmp, err := cp.Compare(r.Tag, rels[best].Tag); err != nil || cmp <= 0 {
+				continue
+			}
+		}
+		best = i
+	}
+	if best < 0 {
+		return Release{}, fmt.Errorf("selfupdate: no release on channel %q", channel)
+	}
+	if err := validateReleaseStructure(rels[best]); err != nil {
+		return Release{}, fmt.Errorf("selfupdate: release %q: %w", rels[best].Tag, err)
+	}
+	return rels[best], nil
+}
+
 func (c *Checker) fetchRelease(ctx context.Context, req Request) (Release, bool, error) {
+	if req.Channel != "" && req.TargetVersion == "" {
+		rel, err := c.channelRelease(ctx, req.Channel)
+		return rel, true, err
+	}
 	if req.TargetVersion == "" {
 		rel, err := c.source.Latest(ctx)
 		return rel, true, err

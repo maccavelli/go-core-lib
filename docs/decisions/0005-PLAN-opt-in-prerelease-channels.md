@@ -303,7 +303,8 @@ func (s *GitHubSource) ListReleases(ctx context.Context, o ListOptions) ([]Relea
 6. **With a channel and a `TargetVersion`,** `ByTag` is used, then the same
    flag/tag agreement and admission checks, then today's path.
 7. **Without a channel** nothing changes: `Latest`, and a prerelease is
-   refused.
+   refused. *(D4: under a `ChannelPolicy`, the flag/tag
+   agreement check applies here too.)*
 
 **Tests** (`channel_test.go`), through `FakeSource` and through
 `GitHubServer`:
@@ -605,6 +606,104 @@ import, and did not compile. It was rewritten as a reversal, then killed.
 **Checks.**
 
 * `make pre-add-check` passed on the seven files, and `make apicheck`
+  reported `compatible with v1.2.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+
+### Step 5: channel discovery (2026-10-01)
+
+**What changed.**
+
+* **`checker.go`.**
+  * `fetchRelease` sends a request with a channel and no `TargetVersion` to
+    `channelRelease`, and reports it as `fromLatest`, so a channel never
+    silently downgrades (rule 5).
+  * `channelRelease` requires a `ReleaseLister` (rule 1). It lists with the
+    default `ListOptions` and drops drafts, tags `Validate` refuses, and
+    releases `checkChannel` refuses (rule 2). The highest by `Compare` wins
+    (rule 3), and only then is its structure checked (E5).
+  * `discover` then applies today's checks to the winner, in today's order:
+    immutability (`ErrMutableRelease`), draft, `Validate`, and the asset
+    checks (rule 4). It refuses a flagged prerelease only when no channel is
+    named (rule 7), and calls `checkChannel` on every path, so a pinned
+    `TargetVersion` on a channel gets the same agreement and admission checks
+    (rule 6).
+  * `checkChannel` is new. Under a `ChannelPolicy` it requires the flag to
+    agree with the tag, and a named channel to admit the tag. Under a plain
+    policy it refuses any named channel (unreachable after
+    `validateRequest`) and checks nothing else (D4).
+* **`github.go`.** `validateReleaseStructure` lands with its first caller,
+  as Step 4 recorded. It checks the release's identity and every asset's
+  structure, the checks `mapRelease` applies to `Latest` and `ByTag`.
+* **Test fixtures.** The internal `scriptSource` (`updater_test.go`) gains
+  `ListReleases`, and `networkCalls` (`checkcache_test.go`) counts it.
+  * Step 3's `TestCheckCachedChannelIsolation` asks for a channel, which now
+    reaches discovery and needs a lister.
+  * These files are outside the PLAN's Step 5 list, but the change follows
+    from rule 1 and decides nothing.
+
+**Deviation D4 (2026-10-01): the flag/tag check without a channel.**
+
+* **Found.** MADR §3 excludes a release whose flag disagrees with its tag
+  "on every channel". Rule 7 says nothing changes without a channel.
+  * Under `NewSemverPolicy` with `AllowPrerelease`, an rc whose flag was
+    cleared after publication can be GitHub's `Latest`.
+  * It passes `Validate`, so a stable request would have installed it.
+  * Applying the check to every request would also refuse such tags under a
+    plain custom policy, changing v1.2.0's G2 behaviour.
+* **Decision.** The owner chose "ChannelPolicy only".
+  * Under a `ChannelPolicy`, the agreement check runs on every request, the
+    stable channel included.
+  * A plain `VersionPolicy` is unchanged, as in D3.
+  * `NewStrictVersionPolicy` refuses prerelease tags before the check is
+    reached, so the built-in path is unchanged.
+* **Records.** MADR §3's agreement bullet carries the amendment, and rule 7
+  above is annotated.
+
+**Tests** (`channel_test.go`, new). `TestChannelDiscovery` runs 20 cases on
+both `FakeSource` and `GitHubServer`:
+
+* out-of-order releases, where the highest admissible wins;
+* `rc` admits stable but not `beta`;
+* `beta` takes `rc.1` over `beta.3`, and a newer stable beats both;
+* a draft is dropped;
+* a mutable winner is `ErrMutableRelease`, not a fallback;
+* a malformed winner is an error, and a malformed older release is harmless;
+* a flag/tag mismatch is dropped, in both directions;
+* nothing on the channel;
+* MADR §4: rc to stable upgrades, on a channel and on stable;
+  leaving a channel and staying on one both give `ErrLatestOlder`;
+* pinned versions:
+  * a prerelease without a channel is refused;
+  * one on a channel that admits it is an upgrade;
+  * an older one is a rollback;
+  * one whose flag disagrees is refused;
+* D4: a stable request refuses an unflagged rc served as `Latest`.
+
+`TestChannelSourceCalls` shows a stable request calls `Latest` and never
+lists, and a channel request lists and never calls `Latest`, on both
+backends. `TestChannelNeedsLister` shows a source without `ListReleases` is
+refused by name, with no fallback to `Latest`.
+
+**Mutation proofs.** The PLAN's five plus two more; none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the first candidate wins, not the highest | `selected v1.1.0 (upgrade), want v1.3.0-beta.1 (upgrade)` |
+| a mutable winner falls back to the next | `err = <nil>, want selfupdate: release is not immutable` |
+| flag/tag agreement not checked | `selected v1.4.0-rc.1 (upgrade), want v1.2.0 (upgrade)` |
+| a stable request uses the list | `stable = , … release "v1.3.0-rc.1" is not a stable published release; want v1.2.0` |
+| `fromLatest` false on a channel | `err = <nil>, want selfupdate: latest release is older than the running version` |
+| D4: the stable channel skips the flag check | `err = <nil>, want one containing "prerelease flag that disagrees with its tag"` |
+| the winner's structure not checked | `err = <nil>, want one containing "asset name \"bad/name\" is not a basename"` |
+
+The first spec for the `fromLatest` mutation matched two `return rel, true,
+err` lines, and the runner refused it. It was narrowed to the channel
+branch, then killed.
+
+**Checks.**
+
+* `make pre-add-check` passed on the five files, and `make apicheck`
   reported `compatible with v1.2.0`.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.

@@ -202,6 +202,11 @@ type ReleaseLister interface {
     the authority.
   * A disagreement means someone flipped the flag after publication, and
     the release is excluded on every channel.
+  * *(Amended 2026-10-01, 0005-PLAN deviation D4:)* "every channel"
+    includes the stable one under a `ChannelPolicy`, so an rc whose flag
+    was cleared is never served as `Latest` to a stable request. A plain
+    custom `VersionPolicy` has no channels and keeps deciding for itself
+    (0004-MADR G2), as in D3.
 * **The source no longer refuses prereleases outright.**
   `validateFetchedRelease`'s prerelease refusal moves into discovery,
   where the request's channel is known. Without a channel, the behaviour is
