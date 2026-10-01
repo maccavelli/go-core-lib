@@ -17,6 +17,7 @@
 | 0004 | PLAN | [Implement harness item H2: CI fuzzing and the manifest differential](decisions/0004-PLAN-h2-fuzzing-and-manifest-differential.md) | complete |
 | 0004 | PLAN | [Implement harness item H4: an end-to-end update of a running copy](decisions/0004-PLAN-h4-running-copy-end-to-end.md) | complete |
 | 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
+| 0005 | MADR | [Offer opt-in prerelease channels without weakening the stable path](decisions/0005-MADR-opt-in-prerelease-channels.md) | accepted |
 
 ## I want to…
 
