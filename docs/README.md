@@ -18,7 +18,7 @@
 | 0004 | PLAN | [Implement harness item H4: an end-to-end update of a running copy](decisions/0004-PLAN-h4-running-copy-end-to-end.md) | complete |
 | 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
 | 0005 | MADR | [Offer opt-in prerelease channels without weakening the stable path](decisions/0005-MADR-opt-in-prerelease-channels.md) | accepted |
-| 0005 | PLAN | [Implement opt-in prerelease channels (`v1.3.0`)](decisions/0005-PLAN-opt-in-prerelease-channels.md) | in-progress |
+| 0005 | PLAN | [Implement opt-in prerelease channels (`v1.3.0`)](decisions/0005-PLAN-opt-in-prerelease-channels.md) | complete |
 | 0006 | MADR | [Adopt golangci-lint v2.14.0, clearing its one finding at the source](decisions/0006-MADR-adopt-golangci-lint-v2-14.md) | accepted |
 | 0006 | PLAN | [Implement the golangci-lint v2.14.0 adoption](decisions/0006-PLAN-adopt-golangci-lint-v2-14.md) | complete |
 

@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0005-MADR-opt-in-prerelease-channels.md"
 ---
@@ -918,3 +918,11 @@ above.
   missing capability.
 * **Workflow callers** change nothing unless they publish prereleases. Pin
   the new release's commit as before.
+
+### Close-out (2026-10-01)
+
+The owner pushed Steps 2–7 (`1d5470e`..`f200c51`; Step 2's code is
+`4c271e0`, pushed earlier). CI run `36939185878` on `f200c5193a2c`
+concluded `success` on `ubuntu-24.04`, `windows-2025` and `macos-15`.
+Every acceptance criterion in Verification is met, so this PLAN is
+`complete`. The owner decides the `v1.3.0` tag.
