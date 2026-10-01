@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/maccavelli/go-core-lib/selfupdate"
 )
 
 // RecordedRequest is one request either GitHubServer origin received.
@@ -24,8 +26,8 @@ type RecordedRequest struct {
 }
 
 // GitHubServer is a fake GitHub REST API on one TLS origin. It serves
-// releases/latest, releases/tags/{tag} and releases/assets/{id} for one
-// repository. Each asset request answers 302 to a second TLS origin, which
+// releases/latest, releases/tags/{tag}, releases/assets/{id} and the paged
+// release list for one repository. Each asset request answers 302 to a second TLS origin, which
 // serves the bytes, as GitHub redirects to its download host. Both servers
 // close when the test ends.
 type GitHubServer struct {
@@ -180,6 +182,10 @@ func (g *GitHubServer) serveAPI(w http.ResponseWriter, r *http.Request) {
 		writeMessage(w, http.StatusUnauthorized, "Bad credentials")
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Path == strings.TrimSuffix(g.prefix, "/") {
+		g.serveList(w, r)
+		return
+	}
 	rest, ok := strings.CutPrefix(r.URL.Path, g.prefix)
 	if !ok || r.Method != http.MethodGet {
 		notFound(w)
@@ -220,8 +226,25 @@ func (g *GitHubServer) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (g *GitHubServer) serveRelease(w http.ResponseWriter, i int) {
-	rel := g.releases[i].release
+// serveList serves the releases in declared order, paged by page and
+// per_page (default 30, at most 100), as GitHub does.
+func (g *GitHubServer) serveList(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	page, perPage := 1, 30
+	if v, err := strconv.Atoi(q.Get("page")); err == nil && v > 0 {
+		page = v
+	}
+	if v, err := strconv.Atoi(q.Get("per_page")); err == nil && v > 0 {
+		perPage = min(v, 100)
+	}
+	out := []releaseJSON{}
+	for i := (page - 1) * perPage; i < len(g.releases) && i < page*perPage; i++ {
+		out = append(out, releaseDoc(g.releases[i].release))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func releaseDoc(rel selfupdate.Release) releaseJSON {
 	out := releaseJSON{
 		ID: rel.ID, TagName: rel.Tag, HTMLURL: rel.URL,
 		Draft: rel.Draft, Prerelease: rel.Prerelease, Immutable: rel.Immutable,
@@ -230,7 +253,11 @@ func (g *GitHubServer) serveRelease(w http.ResponseWriter, i int) {
 	for _, a := range rel.Assets {
 		out.Assets = append(out.Assets, assetJSON(a))
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
+}
+
+func (g *GitHubServer) serveRelease(w http.ResponseWriter, i int) {
+	writeJSON(w, http.StatusOK, releaseDoc(g.releases[i].release))
 }
 
 func (g *GitHubServer) body(id int64) ([]byte, bool) {

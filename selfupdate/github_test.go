@@ -235,8 +235,10 @@ func TestGitHubByTagAndRejects(t *testing.T) {
 	if _, err := env.src.ByTag(context.Background(), "v0.0.1"); err == nil {
 		t.Fatal("accepted draft")
 	}
-	if _, err := env.src.ByTag(context.Background(), "v0.0.2"); err == nil {
-		t.Fatal("accepted prerelease")
+	// The source returns a prerelease; discovery decides whether the
+	// request's channel admits it (0005-PLAN Step 4).
+	if rel, err := env.src.ByTag(context.Background(), "v0.0.2"); err != nil || !rel.Prerelease {
+		t.Fatalf("prerelease: %+v, %v; want it returned, flagged", rel, err)
 	}
 	_, err := env.src.ByTag(context.Background(), "v0.0.3")
 	if !errors.Is(err, ErrMutableRelease) {

@@ -101,6 +101,7 @@ type FakeSource struct {
 	mu       sync.Mutex
 	latest   string
 	releases map[string]builtRelease
+	order    []string // tags, as declared
 	calls    []string
 }
 
@@ -111,6 +112,7 @@ func NewFakeSource(latest string, releases ...ReleaseSpec) *FakeSource {
 	var next int64
 	for _, spec := range releases {
 		s.releases[spec.Tag] = build(spec, &next, "https://github.invalid/releases/tag/"+spec.Tag)
+		s.order = append(s.order, spec.Tag)
 	}
 	return s
 }
@@ -173,8 +175,33 @@ func (s *FakeSource) OpenAsset(ctx context.Context, rel selfupdate.Release, asse
 	return io.NopCloser(bytes.NewReader(body)), nil
 }
 
-// Calls returns the calls made so far, in order: "Latest", "ByTag <tag>"
-// and "OpenAsset <name>".
+// ListReleases implements selfupdate.ReleaseLister: every release, drafts
+// and prereleases included, in the order NewFakeSource was given them, up to
+// o.Limit when it is positive. It applies no other limit.
+func (s *FakeSource) ListReleases(ctx context.Context, o selfupdate.ListOptions) ([]selfupdate.Release, error) {
+	s.record("ListReleases")
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	order := append([]string(nil), s.order...)
+	s.mu.Unlock()
+	var out []selfupdate.Release
+	for _, tag := range order {
+		if o.Limit > 0 && len(out) == o.Limit {
+			break
+		}
+		rel, err := s.lookup(tag)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
+	}
+	return out, nil
+}
+
+// Calls returns the calls made so far, in order: "Latest", "ByTag <tag>",
+// "ListReleases" and "OpenAsset <name>".
 func (s *FakeSource) Calls() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

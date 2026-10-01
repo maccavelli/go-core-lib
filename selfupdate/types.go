@@ -250,6 +250,24 @@ type VersionPolicy interface {
 	Compare(string, string) (int, error)
 }
 
+// ListOptions bound ReleaseLister.ListReleases.
+type ListOptions struct {
+	// Limit is how many releases to consider: zero means 90, and more than
+	// 300 is refused. GitHub lists newest first in practice but does not
+	// document an order, so a release beyond the limit may be missed; that
+	// costs an update, never a wrong one, because discovery checks its
+	// choice in full (0005-MADR §3, amendments E3 and E5).
+	Limit int
+}
+
+// ReleaseLister is a ReleaseSource that can list releases, prereleases
+// included, which discovery needs for Request.Channel: GitHub's latest
+// release is never a prerelease. Entries may be drafts or malformed;
+// discovery decides (0005-MADR §3).
+type ReleaseLister interface {
+	ListReleases(ctx context.Context, o ListOptions) ([]Release, error)
+}
+
 // ChannelPolicy is a VersionPolicy that offers release channels. The
 // empty channel is stable. ValidChannel reports whether a request may name
 // a channel, and Admits whether a tag the policy validated belongs on it.

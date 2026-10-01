@@ -287,6 +287,102 @@ func (s *GitHubSource) getRelease(ctx context.Context, rawURL string) (rel Relea
 	return rel, nil
 }
 
+const (
+	// listPageSize keeps one page of release entries, which carry full
+	// release notes, well inside Limits.ReleaseJSON (0005-MADR E3).
+	listPageSize     = 30
+	defaultListLimit = 90
+	maxListLimit     = 300
+)
+
+func listLimit(o ListOptions) (int, error) {
+	switch {
+	case o.Limit == 0:
+		return defaultListLimit, nil
+	case o.Limit < 0 || o.Limit > maxListLimit:
+		return 0, fmt.Errorf("selfupdate: list limit %d is outside 1..%d", o.Limit, maxListLimit)
+	default:
+		return o.Limit, nil
+	}
+}
+
+// ListReleases implements ReleaseLister. It pages
+// GET /repos/{owner}/{repo}/releases, listPageSize at a time, through the
+// same credential, redirect and rate-limit handling as Latest, and stops
+// at the limit or a short page. Each page is bounded by
+// Limits.ReleaseJSON. Entries are not structure-checked: discovery checks
+// the release it chooses (0005-MADR amendment E5).
+func (s *GitHubSource) ListReleases(ctx context.Context, o ListOptions) ([]Release, error) {
+	limit, err := listLimit(o)
+	if err != nil {
+		return nil, err
+	}
+	var out []Release
+	for page := 1; len(out) < limit; page++ {
+		raws, err := s.getReleasePage(ctx, page)
+		if err != nil {
+			return nil, err
+		}
+		for _, raw := range raws {
+			if len(out) == limit {
+				break
+			}
+			out = append(out, mapReleaseUnchecked(raw))
+		}
+		if len(raws) < listPageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *GitHubSource) getReleasePage(ctx context.Context, page int) (raws []githubReleaseJSON, err error) {
+	rawURL := s.apiURL("repos", s.repo.Owner, s.repo.Name, "releases") +
+		"?per_page=" + strconv.Itoa(listPageSize) + "&page=" + strconv.Itoa(page)
+	resp, err := s.send(ctx, rawURL, gitHubAcceptJSON)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		errBody, rerr := readTruncated(resp.Body, s.limits.ErrorBody)
+		if rerr != nil {
+			return nil, rerr
+		}
+		return nil, s.mapStatus(resp, errBody)
+	}
+	body, err := readBounded(resp.Body, s.limits.ReleaseJSON)
+	if err != nil {
+		return nil, err
+	}
+	if err := decodeJSON(body, &raws); err != nil {
+		return nil, err
+	}
+	return raws, nil
+}
+
+// mapReleaseUnchecked maps a listed release without checking its assets'
+// structure.
+func mapReleaseUnchecked(raw githubReleaseJSON) Release {
+	rel := Release{
+		ID:         raw.ID,
+		Tag:        raw.TagName,
+		URL:        raw.HTMLURL,
+		Draft:      raw.Draft,
+		Prerelease: raw.Prerelease,
+		Immutable:  raw.Immutable,
+		Assets:     make([]Asset, 0, len(raw.Assets)),
+	}
+	for _, a := range raw.Assets {
+		rel.Assets = append(rel.Assets, Asset(a))
+	}
+	return rel
+}
+
 // mapRelease checks only the structure of every asset. State, size and digest
 // are validated for the selected binary and manifest alone, by the Updater,
 // so an unrelated extra asset cannot make a release unusable (0003-MADR A1).
@@ -330,9 +426,6 @@ func validateFetchedRelease(rel Release) error {
 	}
 	if rel.Draft {
 		return fmt.Errorf("selfupdate: release %q is a draft", rel.Tag)
-	}
-	if rel.Prerelease {
-		return fmt.Errorf("selfupdate: release %q is a prerelease", rel.Tag)
 	}
 	if !rel.Immutable {
 		return fmt.Errorf("selfupdate: release %q is not immutable: %w", rel.Tag, ErrMutableRelease)

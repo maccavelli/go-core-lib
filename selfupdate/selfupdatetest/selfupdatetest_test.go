@@ -259,3 +259,67 @@ func TestGitHubServer(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestFakeSourceListReleases(t *testing.T) {
+	pre := selfupdatetest.NewRelease("demo", "v1.2.0-rc.1", plats, body)
+	pre.Prerelease = true
+	draft := selfupdatetest.NewRelease("demo", "v1.3.0", plats, body)
+	draft.Draft = true
+	src := selfupdatetest.NewFakeSource("v1.1.0",
+		selfupdatetest.NewRelease("demo", "v1.1.0", plats, body), pre, draft)
+	rels, err := src.ListReleases(context.Background(), selfupdate.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, r := range rels {
+		tags = append(tags, r.Tag)
+	}
+	if strings.Join(tags, ",") != "v1.1.0,v1.2.0-rc.1,v1.3.0" || !rels[1].Prerelease || !rels[2].Draft {
+		t.Fatalf("ListReleases = %v, want every release in declared order, flags kept", tags)
+	}
+	if rels, _ := src.ListReleases(context.Background(), selfupdate.ListOptions{Limit: 2}); len(rels) != 2 {
+		t.Fatalf("Limit 2 returned %d", len(rels))
+	}
+	if !slices.Contains(src.Calls(), "ListReleases") {
+		t.Fatalf("calls = %v", src.Calls())
+	}
+}
+
+func TestGitHubServerList(t *testing.T) {
+	var specs []selfupdatetest.ReleaseSpec
+	for i := range 35 {
+		specs = append(specs, selfupdatetest.NewRelease("demo", "v1.0."+itoa(int64(i)), plats, body))
+	}
+	g := selfupdatetest.NewGitHubServer(t, "owner", "repo", specs...)
+	tags := func(path string) []string {
+		got := get(t, g, path)
+		if got.status != http.StatusOK {
+			t.Fatalf("%s: status %d", path, got.status)
+		}
+		var docs []struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.Unmarshal(got.body, &docs); err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, d := range docs {
+			out = append(out, d.TagName)
+		}
+		return out
+	}
+	if first := tags("/repos/owner/repo/releases"); len(first) != 30 || first[0] != "v1.0.0" {
+		t.Fatalf("the default page = %d releases from %v", len(first), first[:1])
+	}
+	if second := tags("/repos/owner/repo/releases?per_page=30&page=2"); len(second) != 5 || second[0] != "v1.0.30" {
+		t.Fatalf("page 2 = %v", second)
+	}
+	if beyond := tags("/repos/owner/repo/releases?page=9"); len(beyond) != 0 {
+		t.Fatalf("a page beyond the end = %v", beyond)
+	}
+	g.RequireToken("other")
+	if got := get(t, g, "/repos/owner/repo/releases"); got.status != http.StatusUnauthorized {
+		t.Fatalf("the list under RequireToken: status %d", got.status)
+	}
+}

@@ -540,3 +540,71 @@ numeric: SemVer allows `rc.x`. That mutation replaced it, and was killed.
   `make apicheck` reported `compatible with v1.2.0`.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
+
+### Step 4: listing (2026-10-01)
+
+**What changed.**
+
+* **`types.go`** adds `ListOptions` and `ReleaseLister`. The `Limit` doc
+  carries the PLAN's assumption: GitHub's order is undocumented, so a missed
+  release costs an update, never a wrong one.
+* **`github.go`.**
+  * `GitHubSource.ListReleases` pages
+    `releases?per_page=30&page=N` through `send`, so each page gets the
+    credential, redirect scrubbing, 401 retry and rate-limit mapping.
+    * It stops at the limit or on a short page.
+    * Each body is bounded by `Limits.ReleaseJSON`.
+    * `listLimit` maps 0 to 90 and refuses anything outside 1..300.
+  * `validateFetchedRelease` no longer refuses prereleases. Discovery still
+    does, when no channel is named.
+* **"Kept, but marked" (behaviour 1), done without a marker.** Listed
+  entries are mapped by `mapReleaseUnchecked`, which skips the per-asset
+  structure check that `mapRelease` applies to `Latest` and `ByTag`.
+  Step 5's discovery runs that check on the winner only (E5). The behaviour
+  is the PLAN's, with no new field on `Release`. The check's helper,
+  `validateReleaseStructure`, lands in Step 5 with its first caller, so
+  `unused` stays clean.
+* **`selfupdatetest`.**
+  * `FakeSource` records declared order, and its `ListReleases` returns
+    every release, drafts and prereleases included, in that order, up to a
+    positive `Limit`.
+  * `GitHubServer` serves `GET …/releases` with `page` and `per_page`
+    (default 30, at most 100), in declared order, under the same
+    `RateLimit` and `RequireToken` rules. `serveRelease` now shares
+    `releaseDoc` with it.
+
+**Tests.**
+
+* **`github_list_test.go`** (new):
+  * `TestGitHubSourceListReleases`: 70 releases from pages 1, 2 and 3, the
+    third short, in order and with the token on every page; `Limit 40`
+    stops after two pages; the default gives 90 from three pages; `-1` and
+    `301` are refused;
+  * `TestGitHubSourceListReleasesBounds`: a page over `Limits.ReleaseJSON`,
+    and a 429 on page 2 mapped to `RateLimitError`.
+* **`github_test.go`.** `ByTag` of a prerelease now expects the release,
+  flagged (rule 3).
+* **`selfupdatetest`:** `TestFakeSourceListReleases`, and
+  `TestGitHubServerList`, which covers paging, a page beyond the end, and
+  `RequireToken`.
+
+**Mutation proofs.** The PLAN's four plus two more; none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| no stop on a short page | `panic: test timed out after 1m30s`: the source would request pages forever |
+| `Limit` not applied | `Limit 40: 60 releases from pages [1 2]` |
+| a page body not bounded | `a page larger than Limits.ReleaseJSON was accepted` |
+| `ListReleases` bypasses `send` | `page 1 sent Authorization ""` |
+| the source still refuses prereleases | `prerelease: … is a prerelease; want it returned, flagged` |
+| `FakeSource` lists in reverse | `ListReleases = [v1.3.0 v1.2.0-rc.1 v1.1.0], want … declared order` |
+
+The first spec for the last mutation used `slices`, which that file does not
+import, and did not compile. It was rewritten as a reversal, then killed.
+
+**Checks.**
+
+* `make pre-add-check` passed on the seven files, and `make apicheck`
+  reported `compatible with v1.2.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
