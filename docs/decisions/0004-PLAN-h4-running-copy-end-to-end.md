@@ -273,3 +273,54 @@ The owner approved this PLAN and amendment D1 ("approved proceed").
   was closed against CI run `36888223078` (green on all three operating
   systems), with the fuzz runs from the Linux log. Its index row reads
   `complete`.
+
+### Step 2: the harness and the positive test (2026-10-01)
+
+**What changed.** `selfupdate/e2e_running_test.go` (new, package
+`selfupdate_test`):
+
+* **`helperSource`** is the PLAN's two-mode program. `stampFlag`,
+  `-X main.version=`, stamps the version.
+* **`buildHelper(t, version, goos)`** builds it in its own temporary module,
+  with `CGO_ENABLED=0`, `GOWORK=off`, `GOFLAGS=` and the runtime `GOARCH`,
+  and returns the bytes.
+* **`startCopy`** runs `serve READY DONE` with its signal files in a
+  separate temporary directory, so they never show among the target's
+  siblings. It waits up to 10 s for `READY`. `stop()` writes `DONE` and
+  returns `Wait`'s error, once, and a cleanup stops any copy left running.
+* **`newE2E`** wires the PLAN's composition:
+  * the target is `demo` (`demo.exe` on Windows) in an `EvalSymlinks`'d
+    directory;
+  * one `v1.1.0` release, served through `GitHubServer` with
+    `RequireToken("e2e-token")`; `GH_TOKEN` and `GITHUB_TOKEN` are cleared;
+  * `NewGitHubSource` with that token, and `NewImageVerifier` for the
+    runtime platform;
+  * `NewVersionProber(["--version"])` as the staged probe and as
+    `PostInstall`, either of which a case can replace;
+  * a `RecordingReporter`.
+* **`leftovers`** lists `.<base>.selfupdate-*` siblings, which are staging
+  and backups. It leaves out the lock file, which stays by design.
+* **`TestE2EUpdateRunningCopy`:**
+  * the target reports `demo v1.0.0` before the run;
+  * the run gives `ExitCode` 0, `Applied`, the v2 bytes,
+    `demo v1.1.0`, and both `installing` and `complete` events;
+  * then the per-OS branch: a clean commit on Linux and macOS, and on
+    Windows the pending backup, the refused cleanup while v1 runs, and the
+    cleanup after it exits.
+
+**Proofs:**
+
+| Mutation | Failure |
+| :--- | :--- |
+| `apply` returns before `Install`, as a dry run does | `ExitCode = 0, res = {… Applied:false …}` |
+| the helper's version is not stamped (`-X main.unstamped=`) | `before the update the target reports "demo dev"`. This was caught earlier than the PLAN's staged-probe line, by the pre-run check. |
+| (Windows host) `commitReplacement` returns the pending backup without writing the receipt | `pending "…", receipt false; want both while the old image runs` |
+
+**Checks.**
+
+* `go test -race` ran the test in 1.5 s on macOS.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, with `TestE2EUpdateRunningCopy` passing in
+  1.6 s. That run took the Windows branch: the pending backup, the refused
+  cleanup, and the cleanup after the old image exited.
+* `make pre-add-check` passed on the file.
