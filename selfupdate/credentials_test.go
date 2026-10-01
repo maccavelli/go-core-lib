@@ -399,3 +399,78 @@ func TestCredentialConcurrent(t *testing.T) {
 		t.Fatalf("provider asked %d times by concurrent requests", got)
 	}
 }
+
+// TestGitHubSourceWithCredentials: the copy has its own provider and
+// state, and the receiver is unchanged
+// (0004-PLAN-v1-2-0-interaction-stream.md Step 3).
+func TestGitHubSourceWithCredentials(t *testing.T) {
+	ctx := context.Background()
+	noEnv(t, nil)
+	cs := newCredServer(t)
+	src := cs.source(t, nil)
+	// The receiver resolves first, to anonymous: a copy that inherited that
+	// state would never ask its own provider.
+	if _, err := src.Latest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	prov := &scripted{values: []Credential{bearer("run")}}
+	copied, ok := src.WithCredentials(prov).(*GitHubSource)
+	if !ok || copied == src {
+		t.Fatalf("WithCredentials returned %T %p, want a new *GitHubSource", copied, copied)
+	}
+	if _, err := copied.Latest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.requests()[1].auth; got != "Bearer run" {
+		t.Fatalf("the copy sent %q, want the run's provider", got)
+	}
+	if src.provider != nil {
+		t.Fatalf("the receiver's provider changed: %v", src.provider)
+	}
+	if _, err := src.Latest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.requests()[2].auth; got != "" {
+		t.Fatalf("the receiver sent %q, want anonymous", got)
+	}
+
+	explicit := cs.source(t, func(o *GitHubOptions) { o.Token = "explicit" })
+	if _, err := explicit.WithCredentials(prov).Latest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.requests()[3].auth; got != "Bearer explicit" {
+		t.Fatalf("an explicit token lost to the run's provider: %q", got)
+	}
+
+	withProvider := cs.source(t, func(o *GitHubOptions) { o.Credentials = prov })
+	bare, _ := withProvider.WithCredentials(nil).(*GitHubSource)
+	if bare.provider != nil {
+		t.Fatal("WithCredentials(nil) kept the receiver's provider")
+	}
+}
+
+// TestGitHubSourceWithCredentialsStripsCrossOrigin: the copy's redirect
+// check scrubs the copy's own credential header, not the receiver's.
+func TestGitHubSourceWithCredentialsStripsCrossOrigin(t *testing.T) {
+	noEnv(t, nil)
+	cs := newCredServer(t)
+	src := cs.source(t, nil)
+	custom := &scripted{values: []Credential{{Header: "X-Api-Key", Value: []byte("k1"), Source: "t"}}}
+	copied := src.WithCredentials(custom)
+	rel := Release{ID: 11, Tag: "v1.0.0"}
+	rc, err := copied.OpenAsset(context.Background(), rel, Asset{ID: 1, Name: "demo-linux-amd64", State: AssetStateUploaded, Size: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(rc)
+	_ = rc.Close()
+	if first := cs.requests()[0]; first.custom != "k1" {
+		t.Fatalf("the API request carried %+v, want the custom header", first)
+	}
+	cs.mu.Lock()
+	foreign := cs.foreignSeen
+	cs.mu.Unlock()
+	if len(foreign) != 1 || foreign[0].custom != "" || foreign[0].auth != "" {
+		t.Fatalf("the copy's credential reached the asset host: %+v", foreign)
+	}
+}

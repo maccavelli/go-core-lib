@@ -20,6 +20,7 @@ type runScope struct {
 	confirmer   Confirmer
 	progress    time.Duration
 	hasProgress bool
+	credentials CredentialProvider
 }
 
 type runOptionFunc func(*runScope) error
@@ -64,6 +65,21 @@ func WithProgressInterval(d time.Duration) RunOption {
 	})
 }
 
+// WithCredentials makes p this run's credential provider, in the place of
+// GitHubOptions.Credentials: after an explicit token and before the
+// environment. The source must be a CredentialedSource, which gives the
+// run its own copy with fresh credential state, so one run's credential
+// never reaches the next (0004-MADR amendment B1).
+func WithCredentials(p CredentialProvider) RunOption {
+	return runOptionFunc(func(s *runScope) error {
+		if isNil(p) {
+			return fmt.Errorf("selfupdate: WithCredentials: provider is nil")
+		}
+		s.credentials = p
+		return nil
+	})
+}
+
 // run is one run's collaborators. Its fields shadow the embedded Updater's,
 // so the run's methods read the run's reporter, confirmer, source and
 // progress interval through the same names.
@@ -90,7 +106,7 @@ func scope(opts []RunOption) (runScope, error) {
 }
 
 // newRun returns the Updater's collaborators with s applied.
-func (u *Updater) newRun(s runScope) *run {
+func (u *Updater) newRun(s runScope) (*run, error) {
 	r := &run{Updater: u, source: u.source, reporter: u.reporter, confirmer: u.confirmer, progress: u.progress}
 	if s.reporter != nil {
 		r.reporter = s.reporter
@@ -101,7 +117,14 @@ func (u *Updater) newRun(s runScope) *run {
 	if s.hasProgress {
 		r.progress = s.progress
 	}
-	return r
+	if s.credentials != nil {
+		cs, ok := u.source.(CredentialedSource)
+		if !ok {
+			return nil, fmt.Errorf("selfupdate: WithCredentials: the source does not accept per-run credentials")
+		}
+		r.source = cs.WithCredentials(s.credentials)
+	}
+	return r, nil
 }
 
 // RunWith executes one self-update request with opts applied to this run
@@ -112,7 +135,10 @@ func (u *Updater) RunWith(ctx context.Context, req Request, opts ...RunOption) (
 	if err != nil {
 		return Result{}, err
 	}
-	r := u.newRun(s)
+	r, err := u.newRun(s)
+	if err != nil {
+		return Result{}, err
+	}
 	if !u.running.CompareAndSwap(false, true) {
 		return Result{}, ErrConcurrentUpdate
 	}

@@ -54,6 +54,15 @@ var ErrNoCredential = errors.New("selfupdate: no credential")
 
 type chainCredentials []CredentialProvider
 
+// CredentialedSource is a ReleaseSource that can take a per-run credential
+// provider. WithCredentials returns a copy whose provider is p, with fresh
+// credential state, and leaves the receiver unchanged. RunWith uses it for
+// WithCredentials (0004-MADR amendment B1).
+type CredentialedSource interface {
+	ReleaseSource
+	WithCredentials(p CredentialProvider) ReleaseSource
+}
+
 // ChainCredentials asks each provider in order. The first result other than
 // ErrNoCredential wins, credential or error. Nil and typed-nil providers are
 // dropped.

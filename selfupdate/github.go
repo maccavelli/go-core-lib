@@ -477,6 +477,32 @@ func drainClose(resp *http.Response) {
 	advisory(errors.Join(cerr, resp.Body.Close()))
 }
 
+// WithCredentials implements CredentialedSource. The copy shares the
+// repository, API base, user agent, explicit and environment tokens,
+// observer and limits. Its provider is p (none when p is nil), its
+// credential state is new, and its client is its own copy, so redirect
+// scrubbing reads the copy's credential.
+func (s *GitHubSource) WithCredentials(p CredentialProvider) ReleaseSource {
+	client := *s.client
+	c := &GitHubSource{
+		repo:      s.repo,
+		client:    &client,
+		apiBase:   s.apiBase,
+		userAgent: s.userAgent,
+		token:     s.token,
+		explicit:  s.explicit,
+		envName:   s.envName,
+		observer:  s.observer,
+		limits:    s.limits,
+		now:       s.now,
+	}
+	if !isNil(p) {
+		c.provider = p
+	}
+	c.client.CheckRedirect = c.checkRedirect
+	return c
+}
+
 // credential resolves the source's credential once: the explicit Token,
 // else the provider, else the environment token. Nil means anonymous.
 func (s *GitHubSource) credential(ctx context.Context) (*Credential, error) {

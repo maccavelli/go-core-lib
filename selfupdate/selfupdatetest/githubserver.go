@@ -44,6 +44,7 @@ type GitHubServer struct {
 	limited   int
 	limitHdr  http.Header
 	truncated bool
+	token     string
 }
 
 // NewGitHubServer serves releases for owner/repo. Latest is the last
@@ -88,6 +89,16 @@ func (g *GitHubServer) RateLimit(status int, header http.Header) {
 	defer g.mu.Unlock()
 	g.limited = status
 	g.limitHdr = header.Clone()
+}
+
+// RequireToken makes every later API request without the header
+// "Authorization: Bearer <token>" fail with 401, as GitHub does for a
+// missing or bad token on a private repository. An empty token serves
+// anonymous requests again. Asset downloads are not affected.
+func (g *GitHubServer) RequireToken(token string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.token = token
 }
 
 // TruncateAssets makes the asset origin advertise each body's full length
@@ -144,20 +155,29 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+// writeMessage answers with GitHub's error shape, {"message": msg}.
+func writeMessage(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"message": msg})
+}
+
 func notFound(w http.ResponseWriter) {
-	writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+	writeMessage(w, http.StatusNotFound, "Not Found")
 }
 
 func (g *GitHubServer) serveAPI(w http.ResponseWriter, r *http.Request) {
 	g.record(r)
 	g.mu.Lock()
-	limited, header := g.limited, g.limitHdr
+	limited, header, token := g.limited, g.limitHdr, g.token
 	g.mu.Unlock()
 	if limited != 0 {
 		for k, v := range header {
 			w.Header()[k] = append([]string(nil), v...)
 		}
-		writeJSON(w, limited, map[string]string{"message": "API rate limit exceeded"})
+		writeMessage(w, limited, "API rate limit exceeded")
+		return
+	}
+	if token != "" && r.Header.Get("Authorization") != "Bearer "+token {
+		writeMessage(w, http.StatusUnauthorized, "Bad credentials")
 		return
 	}
 	rest, ok := strings.CutPrefix(r.URL.Path, g.prefix)

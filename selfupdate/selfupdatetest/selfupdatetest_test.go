@@ -241,6 +241,21 @@ func TestGitHubServer(t *testing.T) {
 	if got := get(t, g, "/repos/owner/repo/releases/latest"); got.status != http.StatusOK {
 		t.Fatalf("after clearing the limit, status = %d", got.status)
 	}
+
+	// get sends "Authorization: Bearer test".
+	g.RequireToken("other")
+	if got := get(t, g, "/repos/owner/repo/releases/latest"); got.status != http.StatusUnauthorized {
+		t.Fatalf("a wrong token: status = %d, want 401", got.status)
+	}
+	g.RequireToken("test")
+	if got := get(t, g, "/repos/owner/repo/releases/latest"); got.status != http.StatusOK {
+		t.Fatalf("the required token: status = %d", got.status)
+	}
+	short := get(t, g, "/repos/owner/repo/releases/assets/"+itoa(asset.ID))
+	if short.readErr != nil || string(short.body) != string(body(plats[0])) {
+		t.Fatalf("an asset under RequireToken: %q, %v", short.body, short.readErr)
+	}
+	g.RequireToken("")
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

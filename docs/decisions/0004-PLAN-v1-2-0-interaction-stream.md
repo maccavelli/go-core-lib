@@ -631,3 +631,74 @@ an option changes the source. It moved to Step 3.
   `go test -race -count=1 ./...`.
 * No deviation. The tenth method and the one call site above are recorded
   here as facts the PLAN understated.
+
+### Step 3: per-run credentials (2026-10-01)
+
+**What changed.**
+
+* **`credentials.go`** adds `CredentialedSource`.
+* **`github.go`** adds `GitHubSource.WithCredentials`.
+  * It builds the copy field by field, with a zero `credentialState`, and its
+    provider is `p` unless `p` is nil or typed nil.
+  * **The copy also gets its own client.** The source's client has
+    `CheckRedirect` bound to the source that built it, and `checkRedirect`
+    scrubs that source's credential header from cross-origin redirects.
+  * A copy that shared the receiver's client would therefore scrub the
+    *receiver's* header. A per-run custom header, such as `X-Api-Key`, would
+    follow a redirect to the download host. The PLAN's "shares the client"
+    missed this. The copy now clones the `http.Client` struct, sharing its
+    transport, and rebinds `CheckRedirect` to itself.
+* **`runoptions.go`** adds `WithCredentials`, refusing a nil or typed-nil
+  provider.
+  * `newRun` now returns an error. For a `CredentialedSource` the run's
+    source is `source.WithCredentials(p)`; any other source is refused with
+    the PLAN's message.
+  * The one call site in `manifestverify_test.go` takes the error.
+* **`selfupdatetest/githubserver.go`** adds `RequireToken`.
+  * A request without `Authorization: Bearer <token>` gets 401
+    `{"message": "Bad credentials"}`; downloads are not affected.
+  * GitHub's error shape is written once, by `writeMessage`. `goconst`
+    refused three copies of the `"message"` key.
+
+**Tests.**
+
+* `TestGitHubSourceWithCredentials` (`credentials_test.go`):
+  * The receiver resolves to anonymous first. The copy then sends its own
+    provider's `Bearer run`, and the receiver stays anonymous with no
+    provider.
+  * An explicit `Token` still wins over the run's provider.
+  * `WithCredentials(nil)` drops the receiver's provider.
+* `TestGitHubSourceWithCredentialsStripsCrossOrigin`: the copy's `X-Api-Key`
+  reaches the API, and not the download host. It is beyond the PLAN's list,
+  for the client finding above.
+* `TestRunWithCredentialsIsPerRun` and
+  `TestRunWithCredentialsNeedsCredentialedSource` (`e2e_github_test.go`).
+  The first also checks that no `Authorization` reaches the download origin.
+* `TestGitHubServer` gains `RequireToken` cases: a wrong token, the right
+  one, an asset under the requirement, and clearing it.
+
+**Mutation proofs.** The PLAN's four, plus Step 2's deferred one, plus one
+for the client finding. None survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `WithCredentials` returns the receiver with its provider changed | `a plain Run after RunWith = <nil>, want the 401: the run's credential leaked` |
+| the copy keeps the receiver's resolved state | `the copy sent "", want the run's provider` |
+| the copy shares the receiver's client | `the copy's credential reached the asset host: [{path:/blob auth: custom:k1}]` |
+| `RunWith` ignores the option for a source that is not a `CredentialedSource` | `err = <nil>, want "selfupdate: WithCredentials: …"` |
+| discovery uses the `Updater`'s source (from Step 2) | `RunWith: res={… Operation:none …}` with the 401 |
+| `RequireToken` ignored | `a wrong token: status = 200, want 401` |
+
+**The resolved-state mutation survived the first run.** The test made the
+copy before the receiver had resolved anything, so an inherited state was
+still unresolved. The receiver now resolves first, and the mutation is
+killed.
+
+**Checks.**
+
+* `make pre-add-check` passed on the eight files, after the `goconst` fix,
+  and `make apicheck` reported `compatible with v1.1.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+* No deviation. The client copy is how behaviour 1's "shares the client"
+  keeps the redirect guarantee, which Phase 1's G10 requires.
