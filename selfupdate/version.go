@@ -3,6 +3,7 @@ package selfupdate
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"golang.org/x/mod/semver"
 )
@@ -10,6 +11,10 @@ import (
 var (
 	productRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	versionRe = regexp.MustCompile(`^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`)
+	// channelNameRe and prereleaseNumRe are the two halves of a -NAME.N
+	// prerelease suffix (0005-MADR §1, amendment E2).
+	channelNameRe   = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
+	prereleaseNumRe = regexp.MustCompile(`^(0|[1-9]\d*)$`)
 )
 
 type strictVersionPolicy struct{}
@@ -41,6 +46,113 @@ func (p strictVersionPolicy) Compare(a, b string) (int, error) {
 		return 0, err
 	}
 	return semver.Compare(a, b), nil
+}
+
+// SemverOptions configure NewSemverPolicy.
+type SemverOptions struct {
+	// AllowPrerelease admits vMAJOR.MINOR.PATCH-NAME.N tags, where NAME is
+	// one of Channels and N is a decimal with no leading zero.
+	AllowPrerelease bool
+	// Channels lists the prerelease names, most stable first, in strictly
+	// descending ASCII order, for example {"rc", "beta", "alpha"}. The
+	// order makes SemVer precedence, which compares names lexically, agree
+	// with stability. Each name matches ^[a-z][a-z0-9]{0,15}$.
+	Channels []string
+}
+
+type semverPolicy struct {
+	allow bool
+	rank  map[string]int // channel name to its index, most stable first
+}
+
+// NewSemverPolicy returns a policy for strict vMAJOR.MINOR.PATCH tags and,
+// with AllowPrerelease, -NAME.N prereleases on the named channels. Build
+// metadata is never accepted: it does not take part in precedence, so two
+// tags that differ only in it would compare equal. The returned policy is a
+// ChannelPolicy (0005-MADR §1, amendments E1 and E2).
+func NewSemverPolicy(o SemverOptions) (VersionPolicy, error) {
+	if !o.AllowPrerelease {
+		if len(o.Channels) > 0 {
+			return nil, fmt.Errorf("selfupdate: semver policy: channels need AllowPrerelease")
+		}
+		return &semverPolicy{}, nil
+	}
+	if len(o.Channels) == 0 {
+		return nil, fmt.Errorf("selfupdate: semver policy: AllowPrerelease needs at least one channel")
+	}
+	p := &semverPolicy{allow: true, rank: make(map[string]int, len(o.Channels))}
+	for i, name := range o.Channels {
+		if !channelNameRe.MatchString(name) {
+			return nil, fmt.Errorf("selfupdate: semver policy: channel name %q must match %s", name, channelNameRe)
+		}
+		if _, dup := p.rank[name]; dup {
+			return nil, fmt.Errorf("selfupdate: semver policy: channel %q is listed twice", name)
+		}
+		if i > 0 && o.Channels[i-1] <= name {
+			return nil, fmt.Errorf("selfupdate: semver policy: channel %q must come after %q: list channels in descending ASCII order, most stable first, so version precedence agrees with stability",
+				o.Channels[i-1], name)
+		}
+		p.rank[name] = i
+	}
+	return p, nil
+}
+
+// Validate implements VersionPolicy.
+func (p *semverPolicy) Validate(tag string) error {
+	core, pre, hasPre := strings.Cut(tag, "-")
+	if !versionRe.MatchString(core) {
+		return fmt.Errorf("selfupdate: %q is not a strict release tag", tag)
+	}
+	if hasPre {
+		if !p.allow {
+			return fmt.Errorf("selfupdate: %q is not a strict stable tag", tag)
+		}
+		name, num, ok := strings.Cut(pre, ".")
+		if _, known := p.rank[name]; !ok || !known || !prereleaseNumRe.MatchString(num) {
+			return fmt.Errorf("selfupdate: %q is not an admitted prerelease tag", tag)
+		}
+	}
+	if !semver.IsValid(tag) {
+		return fmt.Errorf("selfupdate: %q is not a valid release tag", tag)
+	}
+	return nil
+}
+
+// Compare implements VersionPolicy. Both arguments are validated first.
+func (p *semverPolicy) Compare(a, b string) (int, error) {
+	if err := p.Validate(a); err != nil {
+		return 0, err
+	}
+	if err := p.Validate(b); err != nil {
+		return 0, err
+	}
+	return semver.Compare(a, b), nil
+}
+
+// ValidChannel implements ChannelPolicy.
+func (p *semverPolicy) ValidChannel(name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, ok := p.rank[name]; !ok {
+		return fmt.Errorf("selfupdate: channel %q is not offered by the version policy", name)
+	}
+	return nil
+}
+
+// Admits implements ChannelPolicy. A stable tag is on every channel; a
+// prerelease is on a channel at most as stable as its own name, so "beta"
+// admits rc and beta builds but not alpha. The stable channel admits no
+// prerelease.
+func (p *semverPolicy) Admits(channel, tag string) bool {
+	pre := semver.Prerelease(tag)
+	if pre == "" {
+		return true
+	}
+	name, _, _ := strings.Cut(strings.TrimPrefix(pre, "-"), ".")
+	tagRank, tagKnown := p.rank[name]
+	chRank, chKnown := p.rank[channel]
+	return tagKnown && chKnown && tagRank <= chRank
 }
 
 func validateProduct(product string) error {

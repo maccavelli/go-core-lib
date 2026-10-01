@@ -246,6 +246,17 @@ type VersionPolicy interface {
 	Compare(string, string) (int, error)
 }
 
+// ChannelPolicy is a VersionPolicy that offers release channels. The
+// empty channel is stable. ValidChannel reports whether a request may name
+// a channel, and Admits whether a tag the policy validated belongs on it.
+// Discovery uses it for Request.Channel; with any other policy every
+// non-empty channel is refused (0005-MADR, amendment E1).
+type ChannelPolicy interface {
+	VersionPolicy
+	ValidChannel(name string) error
+	Admits(channel, tag string) bool
+}
+
 // Verification is the input to a Verifier. Open returns a fresh read-only
 // descriptor of the staged bytes; it is not a writable staging path.
 type Verification struct {
