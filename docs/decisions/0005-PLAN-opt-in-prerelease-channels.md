@@ -707,3 +707,78 @@ branch, then killed.
   reported `compatible with v1.2.0`.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`.
+
+### Step 6: publication (2026-10-01)
+
+**What changed.**
+
+* **`scripts/check-release-tag.sh`** (new) holds the tag rule, once.
+  * It admits a strict `vX.Y.Z`, or `vX.Y.Z-NAME.N` when `NAME` is in
+    `CHANNELS-JSON` and `N` has no leading zero, as `NewSemverPolicy` does.
+  * Every match is a `fullmatch`, so a trailing newline is refused.
+  * `CHANNELS-JSON` defaults to `[]` and is checked against E2. A bad array
+    is a caller's configuration error, so it exits 2 with the usage errors;
+    a tag that is not admitted exits 1.
+* **The workflow.**
+  * The input `prerelease-channels-json` is optional, defaulting to `'[]'`.
+  * "Require a strict stable tag" is now "Require an admitted tag".
+    * It keeps the tag-ref check and calls the script with `$TAG` and
+      `$CHANNELS_JSON` from `env:`.
+    * It moved after "Check out the called workflow commit", which holds
+      the script. It still runs before the artifact is read and before any
+      release is created; the checkout it now follows mutates nothing.
+  * "Validate the staged file set" passes `--channels`.
+  * "Create a draft release" adds `--prerelease --latest=false` when the tag
+    contains `-`, a tag the step above has already admitted.
+  * The immutability and attestation wait is unchanged.
+* **The verifier** takes `--channels JSON` (default `[]`) and applies the
+  rule by calling `check-release-tag.sh`, so the two checks cannot drift.
+  Its own strict-tag regex is gone, and the script's exit 2 stays a usage
+  error.
+* **`ci.yml`** gains "Verify the release tag rule", Linux only like the
+  verifier's fixtures, running `scripts/check-release-tag_test.sh`. The
+  file is outside Step 6's list, but a test that CI does not run is unused;
+  the step decides nothing.
+
+**Tests.**
+
+* **`scripts/check-release-tag_test.sh`** (new), 51 cases:
+  * Step 2's tag table, on `["rc","beta","alpha"]` and on the default;
+  * the default and `[]` refusing a prerelease, and a single channel
+    admitting only itself;
+  * seven bad channel arrays and two usage errors, each exit 2;
+  * one workflow assertion, read from the workflow text as its steps run:
+    * the input defaults to `'[]'` and is optional;
+    * the tag step reads the channels through `env:` and calls the script
+      with both;
+    * the verifier gets `--channels`;
+    * only a `*-*` tag gets `--prerelease --latest=false`, passed to
+      `gh release create`.
+* **`verify-selfupdate-release_test.sh`** gains four cases:
+  * a prerelease tag without channels is refused;
+  * one on a named channel is accepted;
+  * one on another channel is refused;
+  * channels out of order are a usage error.
+
+**Mutation proofs.** The PLAN's three, plus five more, run on scratch
+copies by a script-test variant of the mutation runner; none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| the script accepts any suffix | `FAIL [v1.2.3-gamma.1] on ["rc","beta","alpha"]: want exit 1, got 0` (the runner showed the first failure, `[v1.2.3-rc.1] stable only`; the unknown-name case was confirmed separately) |
+| the workflow omits `--latest=false` | `FAIL workflow: the create step must add --prerelease --latest=false for a suffixed tag` |
+| the script's default admits a channel | `FAIL [v1.2.3-rc.1] stable only: want exit 1, got 0` |
+| the workflow input's default admits a channel | `FAIL workflow: prerelease-channels-json must default to '[]'` |
+| the workflow's tag step drops the channels | `FAIL workflow: the tag step must call check-release-tag.sh with the tag and channels` |
+| the create step marks every tag a prerelease | `FAIL workflow: the create step must add --prerelease --latest=false for a suffixed tag` |
+| the verifier ignores `--channels` | `not ok - prerelease tag on a named channel` |
+| the verifier skips the tag rule | `not ok - non-strict tag rejected (expected failure)` |
+
+**Checks.**
+
+* Clean: `shellcheck scripts/*.sh`, `check-workflows.sh` (both rules),
+  `check-workflows.sh --rule expressions` on `ci.yml`, and
+  `check-workflows_test.sh` (24 passed).
+* Also clean: actionlint v1.7.12, and markdownlint-cli2 0.23.2.
+* The Windows test host passed `go vet ./...`, `go test -race -count=1 ./...`
+  and the script tests it runs, the verifier's four new cases among them.

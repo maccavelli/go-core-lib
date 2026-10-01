@@ -125,6 +125,12 @@ jobs:
       - name: Verify the release guard
         shell: bash
         run: ./scripts/refuse-existing-release_test.sh
+      # The release tag rule and the workflow's use of it
+      # (docs/decisions/0005-PLAN-opt-in-prerelease-channels.md Step 6).
+      - name: Verify the release tag rule
+        if: runner.os == 'Linux'
+        shell: bash
+        run: ./scripts/check-release-tag_test.sh
       # The workflow checker parses YAML with PyYAML, which the runner image
       # does not ship; it is installed hash-pinned into a venv. Like the
       # release fixtures above it runs on Linux: its verdict depends on the

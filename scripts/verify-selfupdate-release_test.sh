@@ -106,6 +106,21 @@ run_fail "non-strict tag rejected" \
 	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
 	--tag v1.2
 
+# 0005-MADR §5: a prerelease tag needs its channel named, and the rule is
+# check-release-tag.sh's.
+run_fail "prerelease tag without channels" \
+	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
+	--tag v1.2.3-rc.1
+run_ok "prerelease tag on a named channel" \
+	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
+	--tag v1.2.3-rc.1 --channels '["rc","beta"]'
+run_fail "prerelease tag on another channel" \
+	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
+	--tag v1.2.3-alpha.1 --channels '["rc","beta"]'
+run_usage "channels out of order" \
+	--dir "$VALID" --products "$PRODUCTS" --platforms "$PLATFORMS" --extras "$EXTRAS" \
+	--tag v1.2.3 --channels '["beta","rc"]'
+
 # The v0.16.0 compatibility bridge was not carried over from mcplib
 # (docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md §3).
 run_usage "--bridge is not an option" \

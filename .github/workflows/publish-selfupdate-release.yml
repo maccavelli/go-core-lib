@@ -19,6 +19,15 @@ on:
         description: JSON array of extra basenames; [] means none
         required: true
         type: string
+      prerelease-channels-json:
+        description: >-
+          JSON array of prerelease channel names, most stable first, in
+          descending ASCII order, such as ["rc","beta"]; a tag
+          vX.Y.Z-NAME.N publishes as a prerelease only when NAME is listed.
+          [] publishes stable tags only
+        required: false
+        type: string
+        default: '[]'
 
 permissions:
   contents: write
@@ -29,27 +38,6 @@ jobs:
   publish:
     runs-on: ubuntu-24.04
     steps:
-      # Every run block reads the ref through env, never through an
-      # interpolated ${{ }}: a tag name is attacker-chosen text, and
-      # interpolation would paste it into the script before any check
-      # (docs/decisions/0003-MADR-remediate-debugging-pass-findings.md D8).
-      - name: Require a strict stable tag
-        shell: bash
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if [ "$REF_TYPE" != "tag" ]; then
-            echo "publish-selfupdate-release: ref is not a tag" >&2
-            exit 1
-          fi
-          tag="$TAG"
-          if ! printf '%s' "$tag" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
-            echo "publish-selfupdate-release: $tag is not a strict stable tag" >&2
-            exit 1
-          fi
-
       - name: Check gh release capabilities
         shell: bash
         # No GH_REPO here on purpose: these are --help probes, which resolve no
@@ -70,6 +58,28 @@ jobs:
           ref: ${{ fromJSON(toJSON(job)).workflow_sha }}
           persist-credentials: false
           path: .core-lib-release-tools
+
+      # Every run block reads the ref through env, never through an
+      # interpolated ${{ }}: a tag name is attacker-chosen text, and
+      # interpolation would paste it into the script before any check
+      # (docs/decisions/0003-MADR-remediate-debugging-pass-findings.md D8).
+      # It runs after the tools checkout, which holds the tag rule, and
+      # before anything reads the artifact or mutates a release. The rule
+      # mirrors selfupdate.NewSemverPolicy
+      # (docs/decisions/0005-MADR-opt-in-prerelease-channels.md §5, E4).
+      - name: Require an admitted tag
+        shell: bash
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+          CHANNELS_JSON: ${{ inputs.prerelease-channels-json }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "publish-selfupdate-release: ref is not a tag" >&2
+            exit 1
+          fi
+          sh .core-lib-release-tools/scripts/check-release-tag.sh "$TAG" "$CHANNELS_JSON"
 
       # Runs AFTER the tools checkout so it can call the shared script, and
       # still BEFORE the artifact download and any release mutation. The logic
@@ -104,6 +114,7 @@ jobs:
           PRODUCTS_JSON: ${{ inputs.products-json }}
           PLATFORMS_JSON: ${{ inputs.platforms-json }}
           EXTRAS_JSON: ${{ inputs.extra-assets-json }}
+          CHANNELS_JSON: ${{ inputs.prerelease-channels-json }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -113,6 +124,7 @@ jobs:
             --products "$PRODUCTS_JSON" \
             --platforms "$PLATFORMS_JSON" \
             --extras "$EXTRAS_JSON" \
+            --channels "$CHANNELS_JSON" \
             --tag "$TAG"
 
       - name: Create a draft release
@@ -123,7 +135,14 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" --draft --verify-tag --generate-notes
+          # A suffixed tag passed the channel check above. It is created as
+          # a prerelease that can never become the repository's latest
+          # release, which stable clients read (0005-MADR §5).
+          args=(--draft --verify-tag --generate-notes)
+          case "$TAG" in
+          *-*) args+=(--prerelease --latest=false) ;;
+          esac
+          gh release create "$TAG" "${args[@]}"
           # Upload the explicit validated file list, one argument per file
           # (0003-MADR D5). --clobber is forbidden.
           files=()

@@ -4,7 +4,7 @@
 set -eu
 
 usage() {
-	echo "usage: verify-selfupdate-release.sh --dir DIR --products JSON --platforms JSON --extras JSON [--tag TAG]" >&2
+	echo "usage: verify-selfupdate-release.sh --dir DIR --products JSON --platforms JSON --extras JSON [--tag TAG [--channels JSON]]" >&2
 	exit 2
 }
 
@@ -13,6 +13,7 @@ PRODUCTS_JSON=""
 PLATFORMS_JSON=""
 EXTRAS_JSON="[]"
 TAG=""
+CHANNELS_JSON="[]"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -36,6 +37,10 @@ while [ $# -gt 0 ]; do
 		TAG="${2:-}"
 		shift 2
 		;;
+	--channels)
+		CHANNELS_JSON="${2:-}"
+		shift 2
+		;;
 	*)
 		usage
 		;;
@@ -55,14 +60,24 @@ fi
 # -B writes no __pycache__ into the tools checkout.
 SCRIPTS=$(cd -- "$(dirname -- "$0")" && pwd)
 
-python3 -B - "$SCRIPTS" "$DIR" "$PRODUCTS_JSON" "$PLATFORMS_JSON" "$EXTRAS_JSON" "$TAG" <<'PY'
+# The tag rule is check-release-tag.sh's, so the workflow's first check and
+# this one cannot drift (0005-MADR §5). Its usage errors stay exit 2.
+if [ -n "$TAG" ]; then
+	rc=0
+	sh "$SCRIPTS/check-release-tag.sh" "$TAG" "$CHANNELS_JSON" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		echo "verify-selfupdate-release: tag is not admitted" >&2
+		exit "$rc"
+	fi
+fi
+
+python3 -B - "$SCRIPTS" "$DIR" "$PRODUCTS_JSON" "$PLATFORMS_JSON" "$EXTRAS_JSON" <<'PY'
 import hashlib, json, os, re, stat, sys
 
-scripts_dir, dirpath, products_raw, platforms_raw, extras_raw, tag = sys.argv[1:7]
+scripts_dir, dirpath, products_raw, platforms_raw, extras_raw = sys.argv[1:6]
 sys.path.insert(0, scripts_dir)
 from selfupdate_manifest import ManifestError, parse_manifest
 
-tag_re = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 os_arch_re = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 product_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -131,9 +146,6 @@ for product in products:
 expected = set(canonical)
 expected.add("SHA256SUMS")
 expected.update(seen_extras)
-
-if tag and not tag_re.fullmatch(tag):
-    fail("tag %r is not a strict stable tag" % tag)
 
 present = []
 for name in os.listdir(dirpath):
