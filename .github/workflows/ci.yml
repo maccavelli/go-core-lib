@@ -20,17 +20,35 @@ jobs:
         os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
+      # The Linux leg fetches every commit and tag: the API gate compares
+      # with the newest v1.* tag (0004-PLAN-v1-1-0-core-api.md Step 12).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ runner.os == 'Linux' && '0' || '1' }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: go mod download
       - run: go test ./...
-      # The race detector needs cgo, which the Linux runner has
-      # (0003-MADR D9; 0002-PLAN V3).
+      # The race detector needs cgo, which the Linux and macOS runners have
+      # (0003-MADR D9; 0002-PLAN V3; 0004-MADR H7).
       - name: go test -race
-        if: runner.os == 'Linux'
+        if: runner.os != 'Windows'
         run: go test -race -count=1 ./...
+      # Order-dependent tests fail here (0004-MADR H7).
+      - name: go test -shuffle
+        if: runner.os == 'Linux'
+        run: go test -shuffle=on -count=2 ./...
+      # Targets the matrix does not run: a build-tag gap fails here
+      # (0004-MADR H7).
+      - name: cross go vet
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for target in freebsd/amd64 openbsd/amd64 linux/386; do
+            echo "go vet ($target)"
+            CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go vet ./...
+          done
       - name: vet, gofmt, tidy, lint
         if: runner.os == 'Linux'
         run: |
@@ -39,6 +57,16 @@ jobs:
           go mod tidy -diff
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
           GOLANGCI_LINT="$(go env GOPATH)/bin/golangci-lint" make lint
+      # apidiff exits 0 on an incompatible change, so the gate reads its
+      # report; its own test plants a removal in a scratch clone. On a tag
+      # push the base is that tag, which compares the tree with itself
+      # (0004-PLAN-v1-1-0-core-api.md Step 12).
+      - name: API compatibility
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          make apicheck
+          ./scripts/check-api-compat_test.sh
       - name: govulncheck
         if: runner.os == 'Linux'
         run: |

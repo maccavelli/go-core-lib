@@ -2066,3 +2066,83 @@ regression in `GitHubSource.checkRedirect` itself, not only in the fake.
 * No deviation. The choices the PLAN left open are recorded above: the
   latest rule, the download path, the unexported manifest name, and golden
   files that hold reporter output only.
+
+### Step 12: API gate and CI (2026-09-30)
+
+**What changed.**
+
+* **`scripts/check-api-compat.sh [BASE]`** (new).
+  * `BASE` defaults to the newest `v1.*` tag. It must name a commit.
+  * The base is a detached `git worktree` in a `mktemp -d` directory,
+    which the `trap` removes.
+  * The pinned `apidiff` writes the base's export data with `-m -w`, run in
+    that worktree, then compares the working tree with
+    `-m -incompatible`.
+  * Exit codes:
+    * 1 when that report is non-empty;
+    * 2 for a usage error, an unknown base, or a failure of `git` or
+      `apidiff`, so a tool failure is never read as an incompatible change;
+    * 0 otherwise.
+
+    The PLAN named only the exit 1.
+* **`scripts/check-api-compat_test.sh`** (new) clones the repository into a
+  temporary directory, copies the working tree's gate into the clone, and
+  runs five cases:
+  * the unchanged tree passes;
+  * an added exported function passes;
+  * `ExitCode` (released in `v1.0.0`) renamed to `exitCode` throughout,
+    so the module still builds, exits 1 and the report names
+    `ExitCode: removed`;
+  * an unknown base exits 2;
+  * two arguments exit 2.
+* **`Makefile`.** An `apicheck` target runs the gate, with an optional
+  `BASE=`.
+* **`.github/workflows/ci.yml`:**
+  * `actions/checkout` takes
+    `fetch-depth: ${{ runner.os == 'Linux' && '0' || '1' }}`. The `'0'` is
+    a string because a number `0` is falsy in an expression and would
+    select `'1'`.
+  * `go test -race` runs where `runner.os != 'Windows'`, which is Linux and
+    macOS.
+  * New Linux steps, in order:
+    * `go test -shuffle=on -count=2 ./...`;
+    * `cross go vet` for `freebsd/amd64`, `openbsd/amd64` and `linux/386`,
+      with `CGO_ENABLED=0`;
+    * "API compatibility", which runs `make apicheck` and then the gate's
+      own test.
+
+    Running the test in CI is beyond the PLAN's text, and matches how the
+    other script tests run.
+
+**The report.** Against `v1.0.1`, `make apicheck` prints
+`check-api-compat: compatible with v1.0.1`. The PLAN's Goal asks for that
+report to list no incompatible change.
+
+A gate that compared nothing would print the same, so the full report,
+without `-incompatible`, was taken too. It lists 70 compatible changes and
+nothing else, including `TwoPhaseSession`, `NewChecker`,
+`(*StandaloneInstaller).CleanupPending` and
+`package …/selfupdate/selfupdatetest: added`.
+
+**Proofs.**
+
+* The gate's test passed: 6 checks, 0 failed.
+* Three broken gates, each in a scratch clone, all failed it:
+
+| Broken gate | The test's failure |
+| :--- | :--- |
+| trusts `apidiff`'s exit status (`if false` for the report check) | `a removed identifier is refused: want exit 1, got 0` |
+| an unknown base exits 0 | `an unknown base is an error: want exit 2, got 0` |
+| writes the base's export data from the working tree | `a removed identifier is refused: want exit 1, got 0` |
+
+* Before the CI steps were added, three local runs of
+  `go test -shuffle=on -count=2 ./...` passed. The three cross `go vet`
+  targets passed. `go test -race` already runs on this macOS host.
+* `shellcheck` 0.11.0 on `scripts/*.sh` and `actionlint` v1.7.12 are clean.
+* `check-workflows.sh`, both on its default workflow and with
+  `--rule expressions` on `ci.yml`, reports ok.
+* `git worktree list` showed only the main worktree after every gate run.
+* **Not yet shown:** the PLAN's proof that the new CI steps run comes from
+  the first push after approval, which is the owner's.
+
+**Checks.** No Go file changed in this step. No deviation.

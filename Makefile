@@ -9,7 +9,7 @@ GOVULNCHECK   ?= $(or $(wildcard $(GOBIN)/govulncheck),$(GOPATH_BIN)/govulncheck
 GOTESTSUM     ?= $(or $(wildcard $(GOBIN)/gotestsum),$(GOPATH_BIN)/gotestsum,$(shell command -v gotestsum 2>/dev/null))
 FLEET_LINT_CFG := .golangci.yml
 
-.PHONY: all help test test-sum fmt vet lint tidy vuln pre-add-check
+.PHONY: all help test test-sum fmt vet lint tidy vuln apicheck pre-add-check
 
 all: help
 
@@ -54,6 +54,13 @@ vuln: ## Runs govulncheck (opt-in; requires govulncheck on PATH/GOBIN)
 		exit 1; \
 	fi
 	$(GOVULNCHECK) ./...
+
+# The exported API must stay compatible with the newest v1.* tag; pass
+# BASE=<rev> to compare against another revision
+# (docs/decisions/0004-PLAN-v1-1-0-core-api.md Step 12).
+BASE ?=
+apicheck: ## Fails on an incompatible exported API change (apidiff against the newest v1.* tag)
+	@./scripts/check-api-compat.sh $(BASE)
 
 # The pre-add rule (AGENTS.md). scripts/go-precheck.sh is the one
 # implementation; the agent gate at `git commit` runs the same file.
