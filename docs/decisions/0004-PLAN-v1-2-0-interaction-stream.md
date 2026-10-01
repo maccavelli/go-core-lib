@@ -702,3 +702,90 @@ killed.
   `go test -race -count=1 ./...`.
 * No deviation. The client copy is how behaviour 1's "shares the client"
   keeps the redirect guarantee, which Phase 1's G10 requires.
+
+### Step 4: the `Stream` (2026-10-01)
+
+**What changed.**
+
+* **`stream.go`** (new) adds the PLAN's API: `Interaction`, `Progressed`,
+  `Finished`, `ConfirmNeeded` (`Answer`, `Cancel`), `Stream` (`Next`, `All`,
+  `Cancel`) and `Start`.
+  * **`Start`.**
+    * It derives a cancellable run context and puts the `Stream` in it
+      under `streamKey`.
+    * `prepare` validates `u` and the options. The `Stream`'s reporter is
+      first, and a caller's `WithReporter` is added through
+      `MultiReporter`. The `Stream`'s confirmer is used unless the caller
+      gave one.
+    * The run goroutine calls `execRun` and enqueues `Finished` after it
+      returns.
+    * A preparation error gives a lone `Finished`, and no goroutine.
+  * **The queue** is a mutex-guarded slice. `push` coalesces only a
+    progress event over a trailing progress event (B4).
+  * **Waking waiters.** There are two channels. `wake`, with one slot,
+    says something was queued, and `Next` passes the signal on when items
+    remain. `closed` is closed when `Finished` is returned.
+  * **Several waiters.** The PLAN says `Next` is safe from several
+    goroutines. With `wake` alone, a second waiter blocked at the moment
+    `Finished` is consumed would never wake. `closed` releases it with
+    `io.EOF`.
+  * **Replies.** `ConfirmNeeded` uses a one-slot reply channel and a
+    `sync.Once`. `Cancel(nil)` sends `context.Canceled` (B5).
+* **`runoptions.go`.** `execRun` holds the `running` guard and calls
+  `execute`; `RunWith` and `Start` both use it.
+
+**Tests.**
+
+* **`leak_test.go`.** `checkNoLeak(t)` is the PLAN's helper, polling for up
+  to 2 s. `export_test.go` exposes it as `selfupdate.CheckNoLeak` for the
+  external tests. Every new test calls it.
+  * `TestConfirmLeaksNoReader` still has its own loop. Step 6 moves it onto
+    the helper.
+* **`stream_test.go`** (package `selfupdate`):
+  * `TestStreamProgressLatestWins`, `TestStreamNextContext`,
+    `TestConfirmNeededRepliesOnce` and `TestStartInvalid`;
+  * `TestStreamFinishedThenEOF`, beyond the PLAN, for the second waiter.
+    Its 20 ms pause is not an ordering handshake: the assertions hold in any
+    interleaving, and the pause makes the blocked-waiter path the one
+    exercised.
+* **`stream_run_test.go`** (package `selfupdate_test`):
+  * `TestStreamDeliversRunInOrder`, against the kinds in
+    `jsonl-upgrade.golden`;
+  * `TestStreamConfirm` (both answers, with a second reply ignored);
+  * `TestStreamCancelWhileConfirming`;
+  * `TestStreamCancelDuringDownload` (O6): the binary body blocks until the
+    run's context ends. When `Finished` is read, the last event is the
+    run's own `failed`, no staging file is left, the target is unchanged,
+    and the `Updater` is free;
+  * `TestStreamAll`, including a `break` that leaves the run waiting;
+  * `TestStreamConcurrentRun`, `TestStartReporterFansOut` and
+    `TestStartConfirmerReplaces`.
+  * Every interaction is read through `drain`, which also fails on anything
+    after `Finished`.
+* With the race detector and `-shuffle=on -count=5`, the new tests passed.
+
+**Mutation proofs.** The PLAN's seven (its eighth row was dropped before
+approval), plus four for what this step added. None survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `Cancel` does nothing | `Next after 5 interactions: context deadline exceeded` |
+| `Finished` is enqueued before the run returns | `after Finished: selfupdate.Progressed{…}; want io.EOF` |
+| progress replaces any newest item | `queue holds 2 items, want 3` |
+| progress is never coalesced | `queue holds 2001 items, want 3` |
+| the confirmer ignores the context | `Next after 0 interactions: context deadline exceeded` |
+| `Next` consumes before the context check | `Next on an ended context = {{selected …}}, <nil>` |
+| `Answer` without `sync.Once` | `a second reply blocked` |
+| `Next` does not wait on `closed` | `a waiter was left blocked after Finished` |
+| `Start`'s `WithReporter` replaces the `Stream`'s | `stream kinds [], reporter kinds [resolving-target … complete]` |
+| `Start` ignores the caller's confirmer | `unexpected ConfirmNeeded {…}` |
+| `ConfirmNeeded.Cancel(nil)` passes nil through | `Cancel(nil) reply = {ok:false err:<nil>}, want context.Canceled` |
+
+**Checks.**
+
+* `make pre-add-check` passed on the six files, and `make apicheck`
+  reported `compatible with v1.1.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+* No deviation. The `closed` channel is how the PLAN's "safe from several
+  goroutines" is met.

@@ -139,6 +139,12 @@ func (u *Updater) RunWith(ctx context.Context, req Request, opts ...RunOption) (
 	if err != nil {
 		return Result{}, err
 	}
+	return u.execRun(ctx, req, r)
+}
+
+// execRun runs r under the Updater's one-run-at-a-time guard. RunWith and
+// Start both use it.
+func (u *Updater) execRun(ctx context.Context, req Request, r *run) (Result, error) {
 	if !u.running.CompareAndSwap(false, true) {
 		return Result{}, ErrConcurrentUpdate
 	}
