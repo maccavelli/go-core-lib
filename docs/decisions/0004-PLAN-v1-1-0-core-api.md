@@ -1,6 +1,6 @@
 ---
-status: in-progress
-date: 2026-09-30
+status: complete
+date: 2026-10-01
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
 # Implement Phase 1: the `v1.1.0` core API
@@ -2151,6 +2151,9 @@ nothing else, including `TwoPhaseSession`, `NewChecker`,
 
 **Checks.** No Go file changed in this step. No deviation.
 
+*(2026-10-01: the first push after approval showed the new CI steps run;
+see the close-out.)*
+
 ### Step 13: documentation and close-out (2026-09-30)
 
 **What changed.**
@@ -2238,9 +2241,7 @@ resolver checked every relative link and `#anchor` in `docs/README.md`,
 * `make apicheck`: `check-api-compat: compatible with v1.0.1`.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`, including every example.
-* **Not yet:** CI on the pushed tree. This PLAN stays `in-progress` until it
-  is green on all three operating systems, including the new steps (Step 12
-  and rule 6 of this step).
+* **CI on the pushed tree:** see the close-out below.
 
 **`apidiff -m` against `v1.0.1` (all changes).** It reports 70 changes, all
 of them compatible:
@@ -2383,3 +2384,30 @@ incompatible change against `v1.0.1`.
   is unchanged.
 * **Scripts that parse the text reporter** may now see the outcome lines
   above. For a stable format, use `NewJSONReporter` and `Result.Document`.
+
+### Close-out (2026-10-01)
+
+The owner pushed Steps 1–13. CI run `36802506538`, on `8b8c946f4616`
+(Step 13), concluded `success` on `ubuntu-24.04`, `macos-15` and
+`windows-2025`. The runs for the earlier pushes, `36772688160` and
+`36789361423`, also succeeded.
+
+The new steps ran where Step 12 placed them, and were skipped elsewhere:
+
+| Step | `ubuntu-24.04` | `macos-15` | `windows-2025` |
+| :--- | :--- | :--- | :--- |
+| `go test -race` | success | success | skipped |
+| `go test -shuffle` | success | skipped | skipped |
+| `cross go vet` | success | skipped | skipped |
+| API compatibility | success | skipped | skipped |
+
+The Ubuntu log shows:
+
+* `go vet` for `freebsd/amd64`, `openbsd/amd64` and `linux/386`;
+* `check-api-compat: compatible with v1.0.1`, so the full-history
+  checkout found the tag;
+* `check-api-compat_test: 6 passed, 0 failed`.
+
+Every acceptance criterion in Verification is met, so this PLAN is
+`complete`. `v1.1.0` is not tagged: that waits for the owner's ask (Rollout
+and Rollback).
