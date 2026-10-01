@@ -861,3 +861,62 @@ replaced it, and was killed.
   `go test -race -count=1 ./...`.
 * No deviation. The value copy in `Supply` is recorded above as a choice
   the PLAN left open.
+
+### Step 6: H6 for the confirmer tests (2026-10-01)
+
+**What changed.**
+
+* **`leak_test.go`.** `checkNoLeak(t)` now also returns its check, as
+  `checkNow`, as well as running it in `t.Cleanup`.
+  * Applying the helper to the pipe-based tests showed why. `ttyPipe`
+    closes its pipe in its own cleanup, and closing the pipe releases a
+    reader blocked on it.
+  * A check that ran only at cleanup, registered before `ttyPipe`, would
+    therefore run after the close and miss the leak. The proof below shows
+    this.
+  * The confirmer tests open with `defer checkNoLeak(t)()`. A deferred call
+    runs before every `t.Cleanup`, whatever order the helpers were called
+    in.
+  * Step 4's tests call `checkNoLeak(t)` as a statement; nothing they rely
+    on is released by a cleanup.
+* **The confirmer tests.** These now open with the deferred check:
+  * `TestTerminalConfirmerRequiresTTY`, `…YesNo`, `…EOFDeclines` and
+    `…CancelKeepsLine`, in `confirmer_test.go`;
+  * `TestConfirmLeavesHostInput` and `TestConfirmersShareInput`, in
+    `confirmer_read_test.go`;
+  * `TestPromptConfirmer`, in `foundations_test.go`. The PLAN's behaviour
+    ("every test that calls `Confirm` on a terminal or prompt confirmer")
+    covers it, although its file list named only the first two files.
+* **`TestConfirmLeaksNoReader`'s own goroutine loop** is replaced by the
+  helper, with a comment on why it is deferred. The loop's `time.Sleep`
+  is now the helper's, documented as pacing the poll.
+* **The two other `time.Sleep` calls stay,** as the PLAN says
+  (`confirmer_test.go:105-107`, `confirmer_read_test.go:67-69`). Their
+  comments already explain them.
+
+**Proof** (scratch copies). The leak is a confirmer that starts its next
+read as soon as it has an answer (`c.nextLine()` after `c.consumed()`).
+That reader blocks on the input, holds no answered line, and outlives
+`Confirm`.
+
+* **With the leak:**
+  * `TestConfirmLeaksNoReader` failed with
+    `leak_test.go:26: goroutines: 3 now, 2 when the test began`;
+  * `TestConfirmersShareInput` failed with the same message, and with
+    `second: ok=false err=context deadline exceeded, want its own "y"`.
+* **With the leak, and `TestConfirmLeaksNoReader` reduced to a cleanup-only
+  check registered before `ttyPipe`:** the test **passed**. That is the gap
+  the deferred check closes.
+* A first attempt used a second reader goroutine that competed for input.
+  It hung both tests until their timeout instead of showing a leak, so it
+  was replaced.
+
+**Checks.**
+
+* `go test -race -count=3` on the confirmer tests passed, 51 times.
+* `make pre-add-check` passed on the four files.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.
+* No deviation. The `checkNow` return is how "every confirmer test has a
+  goroutine-leak check" (MADR H6) is met for tests whose cleanup releases
+  goroutines.

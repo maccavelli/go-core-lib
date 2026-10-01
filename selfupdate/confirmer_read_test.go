@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -29,6 +28,7 @@ func ttyPipe(t *testing.T) (r, w *os.File) {
 // TestConfirmLeavesHostInput: an answered Confirm reads its line and no
 // further, so the host program reads its own next input (0004-MADR R2).
 func TestConfirmLeavesHostInput(t *testing.T) {
+	defer checkNoLeak(t)()
 	r, w := ttyPipe(t)
 	if _, err := io.WriteString(w, "y\nhost-command\n"); err != nil {
 		t.Fatal(err)
@@ -57,6 +57,7 @@ func TestConfirmLeavesHostInput(t *testing.T) {
 // TestConfirmersShareInput: a second confirmer on the same input receives
 // its own answer; the first leaves nothing reading (0004-MADR R2).
 func TestConfirmersShareInput(t *testing.T) {
+	defer checkNoLeak(t)()
 	r, w := ttyPipe(t)
 	if _, err := io.WriteString(w, "n\n"); err != nil {
 		t.Fatal(err)
@@ -83,19 +84,13 @@ func TestConfirmersShareInput(t *testing.T) {
 // left reading the input (0004-MADR R2).
 func TestConfirmLeaksNoReader(t *testing.T) {
 	r, w := ttyPipe(t)
-	base := runtime.NumGoroutine()
+	// Checked before ttyPipe's cleanup closes the pipe, which would release
+	// a leaked reader.
+	defer checkNoLeak(t)()
 	if _, err := io.WriteString(w, "y\n"); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := NewTerminalConfirmer(r, io.Discard).Confirm(context.Background(), upgradePrompt); err != nil || !ok {
 		t.Fatalf("ok=%v err=%v", ok, err)
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for runtime.NumGoroutine() > base {
-		if time.Now().After(deadline) {
-			t.Fatalf("goroutines: %d after an answered Confirm, %d before", runtime.NumGoroutine(), base)
-		}
-		runtime.Gosched()
-		time.Sleep(10 * time.Millisecond)
 	}
 }

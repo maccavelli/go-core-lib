@@ -11,6 +11,7 @@ import (
 )
 
 func TestTerminalConfirmerRequiresTTY(t *testing.T) {
+	defer checkNoLeak(t)()
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -25,6 +26,7 @@ func TestTerminalConfirmerRequiresTTY(t *testing.T) {
 }
 
 func TestTerminalConfirmerYesNo(t *testing.T) {
+	defer checkNoLeak(t)()
 	setSeam(t, &isTerminal, func(int) bool { return true })
 
 	t.Run("yes", func(t *testing.T) {
@@ -53,6 +55,7 @@ func TestTerminalConfirmerYesNo(t *testing.T) {
 // TestTerminalConfirmerEOFDeclines: end of input before an answer is the
 // default "N", not an error (0003-MADR C6).
 func TestTerminalConfirmerEOFDeclines(t *testing.T) {
+	defer checkNoLeak(t)()
 	setSeam(t, &isTerminal, func(int) bool { return true })
 	in, _ := pipeFile(t, "")
 	c := NewTerminalConfirmer(in, io.Discard)
@@ -65,6 +68,7 @@ func TestTerminalConfirmerEOFDeclines(t *testing.T) {
 // TestTerminalConfirmerCancelKeepsLine: a cancelled Confirm does not lose
 // the line typed afterwards; the next Confirm receives it (0003-MADR C7).
 func TestTerminalConfirmerCancelKeepsLine(t *testing.T) {
+	defer checkNoLeak(t)()
 	setSeam(t, &isTerminal, func(int) bool { return true })
 	r, w, err := os.Pipe()
 	if err != nil {

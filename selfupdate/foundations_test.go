@@ -192,6 +192,7 @@ func TestNonInteractiveConfirmer(t *testing.T) {
 // TestPromptConfirmer: answers, refusals, and the host's next line left
 // unread (0004-MADR G6, R2).
 func TestPromptConfirmer(t *testing.T) {
+	defer checkNoLeak(t)()
 	ctx := context.Background()
 	for input, want := range map[string]bool{"y\n": true, "yes\n": true, "n\n": false, "": false} {
 		var out strings.Builder
