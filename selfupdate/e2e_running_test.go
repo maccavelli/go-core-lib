@@ -2,6 +2,7 @@ package selfupdate_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -319,5 +320,114 @@ func TestE2EUpdateRunningCopy(t *testing.T) {
 	}
 	if exists(res.PendingBackup) || exists(e.receipt()) || len(e.leftovers(t)) != 0 {
 		t.Fatalf("after cleanup: backup %v, receipt %v, leftovers %v", exists(res.PendingBackup), exists(e.receipt()), e.leftovers(t))
+	}
+}
+
+// errCrashes is a post-install probe's failure, as when the installed binary
+// crashes on start.
+var errCrashes = errors.New("crashes on start")
+
+// TestE2ERunningCopyRefusals: each refused update leaves the running program
+// as it was, byte for byte.
+func TestE2ERunningCopyRefusals(t *testing.T) {
+	selfupdate.CheckNoLeak(t)
+	v1 := buildHelper(t, "v1.0.0", runtime.GOOS)
+	v2 := buildHelper(t, "v1.1.0", runtime.GOOS)
+	foreignOS := "linux"
+	if runtime.GOOS == "linux" {
+		foreignOS = "windows"
+	}
+	foreign := buildHelper(t, "v1.1.0", foreignOS)
+
+	cases := []struct {
+		name   string
+		served []byte
+		opts   e2eOptions
+		before func(*e2e)
+		check  func(*testing.T, *e2e, selfupdate.Result, error)
+	}{
+		{
+			name:   "the binary does not match SHA256SUMS",
+			served: v2,
+			opts: e2eOptions{release: func(s selfupdatetest.ReleaseSpec) selfupdatetest.ReleaseSpec {
+				s.Assets[0].Body = v1 // the manifest still lists v2's digest
+				return s
+			}},
+			check: wantErrIs(selfupdate.ErrIntegrity),
+		},
+		{
+			name: "the binary is for another OS", served: foreign,
+			check: wantErrIs(selfupdate.ErrIntegrity),
+		},
+		{
+			name: "the new binary reports the wrong version", served: v1,
+			check: wantErrText("staged binary failed a probe"),
+		},
+		{
+			name: "the installed binary fails its post-install probe", served: v2,
+			opts: e2eOptions{postInstall: selfupdate.ProberFunc(func(context.Context, selfupdate.ProbeRequest) error {
+				return errCrashes
+			})},
+			check: func(t *testing.T, e *e2e, res selfupdate.Result, err error) {
+				t.Helper()
+				wantErrText("installed binary failed its probe")(t, e, res, err)
+				if !errors.Is(err, errCrashes) || !slices.Contains(e.rec.Kinds(), selfupdate.EventRolledBack) {
+					t.Fatalf("err = %v, events = %v; want the probe's error and rolled-back", err, e.rec.Kinds())
+				}
+			},
+		},
+		{
+			name: "the download is cut short", served: v2,
+			before: func(e *e2e) { e.gh.TruncateAssets(true) },
+			check:  func(*testing.T, *e2e, selfupdate.Result, error) {},
+		},
+		{
+			name: "the API refuses the token", served: v2,
+			before: func(e *e2e) { e.gh.RequireToken("other") },
+			check:  wantErrText("github http 401"),
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e := newE2E(t, v1, c.served, c.opts)
+			if c.before != nil {
+				c.before(e)
+			}
+			res, err := e.run()
+			if err == nil || res.Applied {
+				t.Fatalf("res = %+v, err = %v; want a refusal", res, err)
+			}
+			c.check(t, e, res, err)
+			if !slices.Equal(e.bytes(t), v1) {
+				t.Fatal("the target is not byte-identical to the v1.0.0 build")
+			}
+			if got := e.version(t); got != "demo v1.0.0" {
+				t.Fatalf("the target reports %q", got)
+			}
+			if left := e.leftovers(t); len(left) != 0 || exists(e.receipt()) {
+				t.Fatalf("leftovers %v, receipt %v", left, exists(e.receipt()))
+			}
+			if err := e.running.stop(); err != nil {
+				t.Fatalf("the old process did not exit cleanly: %v", err)
+			}
+		})
+	}
+}
+
+func wantErrIs(target error) func(*testing.T, *e2e, selfupdate.Result, error) {
+	return func(t *testing.T, _ *e2e, _ selfupdate.Result, err error) {
+		t.Helper()
+		if !errors.Is(err, target) {
+			t.Fatalf("err = %v, want %v", err, target)
+		}
+	}
+}
+
+func wantErrText(text string) func(*testing.T, *e2e, selfupdate.Result, error) {
+	return func(t *testing.T, _ *e2e, _ selfupdate.Result, err error) {
+		t.Helper()
+		if !strings.Contains(err.Error(), text) {
+			t.Fatalf("err = %v, want one mentioning %q", err, text)
+		}
 	}
 }

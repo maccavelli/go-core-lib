@@ -202,7 +202,7 @@ server, target and running copy. Each asserts:
 | the binary does not match `SHA256SUMS` | the release's binary asset holds other bytes than its manifest entry | `ErrIntegrity` |
 | the binary is for another OS | the foreign build, with a matching manifest | `ErrIntegrity`, from the image verifier |
 | the new binary reports the wrong version | the v1 build served as `v1.1.0` | the staged probe: `failed a probe` |
-| the installed binary fails its post-install probe | the v2 build, with `PostInstall` replaced by a prober that always fails | `failed its probe`; `res.RolledBack` is true, and `EventRolledBack` is recorded |
+| the installed binary fails its post-install probe | the v2 build, with `PostInstall` replaced by a prober that always fails | `failed its probe`; ~~`res.RolledBack` is true, and~~ `EventRolledBack` is recorded *(D2)* |
 | the download is cut short | `TruncateAssets(true)` | a read error; no `ErrIntegrity` is required, and no file is written |
 | the API refuses the token | `RequireToken("other")` | `github http 401` |
 
@@ -323,4 +323,51 @@ The owner approved this PLAN and amendment D1 ("approved proceed").
   `go test -race -count=1 ./...`, with `TestE2EUpdateRunningCopy` passing in
   1.6 s. That run took the Windows branch: the pending backup, the refused
   cleanup, and the cleanup after the old image exited.
+* `make pre-add-check` passed on the file.
+
+### Step 3: the negative cases (2026-10-01)
+
+**What changed.** `TestE2ERunningCopyRefusals` is in
+`selfupdate/e2e_running_test.go`.
+
+* It builds v1, v2 and the foreign build once: `windows` on Linux, and
+  `linux` elsewhere.
+* It runs the PLAN's six cases, each with its own server, target and running
+  copy. Every case asserts the PLAN's common conditions: a refusal, the v1
+  bytes, `demo v1.0.0`, no leftovers, no receipt, and a clean `stop()`. Each
+  also asserts its own error:
+
+  | Case | Assertion |
+  | :--- | :--- |
+  | `SHA256SUMS` mismatch | `ErrIntegrity`. The binary asset holds v1, and the manifest lists v2's digest. |
+  | foreign OS | `ErrIntegrity` |
+  | wrong version | `staged binary failed a probe` |
+  | post-install | `installed binary failed its probe`, `errors.Is(err, errCrashes)`, and `EventRolledBack` |
+  | truncated download | the common conditions only |
+  | refused token | `github http 401` |
+
+**Deviation D2 (2026-10-01): `res.RolledBack`.** The PLAN's post-install
+case says "`res.RolledBack` is true". `Result` has no such field; only
+`InstallResult` does. The coordinator reports the rollback as
+`EventRolledBack`, which the case asserts, and the PLAN's text is annotated.
+No MADR change.
+
+**Defence in depth, made visible.** Each mutation below was stopped by a
+later layer, so the target never changed. But that later layer reported a
+different error, and the case's exact-error assertion caught it:
+
+| Mutation | Failure |
+| :--- | :--- |
+| `runVerifiers` runs no verifier | the foreign case: `staged binary failed a probe: … fork/exec …`, not `ErrIntegrity`. The staged probe cannot run a foreign executable. |
+| the staged probes are skipped | the wrong-version case: `installed binary failed its probe: … printed "demo v1.0.0", want "v1.1.0"`. The post-install probe refused instead, and rolled back. |
+| the post-install rollback is skipped | the post-install case: `installed binary failed its probe: crashes on start`, with no `EventRolledBack` |
+| `verifyIntegrity` returns nil | the `SHA256SUMS` case: `staged binary failed a probe: … printed "demo v1.0.0" …, want selfupdate: integrity check failed` |
+
+**Checks.**
+
+* With `-race`, the test passed in 3.5 s on macOS.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`. Both new tests passed: the six refusals in
+  4.9 s, including the post-install rollback that moves v1 back while v1
+  runs.
 * `make pre-add-check` passed on the file.
