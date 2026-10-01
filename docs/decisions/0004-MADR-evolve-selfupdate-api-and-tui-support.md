@@ -826,6 +826,17 @@ signature would add almost nothing today.
 * **H2.** Commit the four fuzz targets. Run them for 20 s each in a Linux
   CI step, and add the Python/Go manifest differential (N=5000) to the
   verifier test.
+  *(Amended 2026-10-01 by
+  [0004-PLAN-h2-fuzzing-and-manifest-differential.md](0004-PLAN-h2-fuzzing-and-manifest-differential.md):)*
+  * *C1. The differential is a Go test, `TestManifestDifferential`, that
+    drives the verifier's own parser. That parser moves out of the
+    verifier's heredoc into `scripts/selfupdate_manifest.py`, unchanged in
+    behaviour and messages, and the verifier imports it. CI requires
+    `python3` for the test on Linux and macOS.*
+  * *C2. `scripts/go-fuzz.sh` fuzzes every fuzz target it finds in
+    `selfupdate`, for 20 s each, and fails when it finds fewer than four.
+    CI runs it on Linux through `make fuzz`, and keeps a crasher as an
+    artifact.*
 * **H3.** `selfupdatetest` provides:
   * a fake GitHub server serving `latest`, `tags/{tag}` and `assets/{id}`,
     with each asset returned as a 302 to a second TLS origin;

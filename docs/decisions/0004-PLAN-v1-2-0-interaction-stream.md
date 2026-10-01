@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
@@ -960,8 +960,7 @@ That reader blocks on the input, holds no answered line, and outlives
   `docs/README.md`, `docs/architecture.md` or the guide.
 * The Windows test host passed `go vet ./...` and
   `go test -race -count=1 ./...`, including every example.
-* **Not yet:** CI on the pushed tree. This PLAN stays `in-progress` until it
-  is green.
+* **CI on the pushed tree:** see the close-out below.
 
 **`apidiff -m` against `v1.1.0` (all changes).** It reports 17 changes, all
 compatible. They are exactly the API this PLAN lists:
@@ -1025,3 +1024,18 @@ behaves exactly as before; the existing suite passed unchanged.
   `CredentialedSource`. It returns a copy with fresh credential state, and
   rebinds anything, such as a redirect check, that reads the copy's
   credential.
+
+### Close-out (2026-10-01)
+
+The owner pushed Steps 1–7 (`e85b91f`..`cfc95c8`). CI run `36882798775` on
+`cfc95c883220` concluded `success` on `ubuntu-24.04`, `windows-2025` and
+`macos-15`. Every acceptance criterion in Verification is met, so this PLAN
+is `complete`.
+
+The MADR's Phase 2 Confirmation, an example Bubble Tea program in
+go-tui-lib, is still open. That repository records it.
+
+### Release (2026-10-01)
+
+The owner tagged `v1.2.0` on `cfc95c8`, an annotated tag, and CI run
+`36884014511` on the tag concluded `success`.
