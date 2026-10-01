@@ -33,11 +33,14 @@ Makefile                    development targets (below)
 scripts/
   go-precheck.sh            the pre-add check
   verify-selfupdate-release.sh     validates a staged release set
+  selfupdate_manifest.py    the verifier's SHA256SUMS parser, as a module;
+                            the differential test calls it too
   refuse-existing-release.sh       refuses a tag that already has a release
   check-workflows.sh        parses workflows as YAML: no ${{ }} in a run script,
                             and every repository-scoped gh step sets GH_REPO
   check-api-compat.sh       fails on an incompatible exported API change
                             against the newest v1.* tag (apidiff)
+  go-fuzz.sh                fuzzes each fuzz target of a package in turn
   requirements-workflow-check.txt  hash-pinned PyYAML for check-workflows.sh
   *_test.sh                 offline tests for each of those scripts
 .claude/ .grok/ .opencode/  per-agent pointers to AGENTS.md
@@ -158,7 +161,19 @@ interpolated into shell.
 ## Tooling
 
 - **`make` targets:** `test`, `test-sum`, `fmt`, `vet`, `lint`, `tidy`,
-  `vuln`, `apicheck`, `pre-add-check`, `help`.
+  `vuln`, `apicheck`, `fuzz`, `pre-add-check`, `help`.
+- **`make fuzz`** runs `scripts/go-fuzz.sh` on `selfupdate`. It finds
+  every fuzz target, refuses fewer than four, and fuzzes each for
+  `FUZZTIME` (default 20s), with minimization capped at 5 s. A failing
+  input stays in `selfupdate/testdata/fuzz/<Name>/`, where it is a seed from
+  then on.
+- **The manifest differential.** `TestManifestDifferential` generates 5,000
+  manifests from a fixed seed. Each must be accepted or rejected alike, with
+  the same entries, by `ParseSHA256SUMS` and by the verifier's own parser,
+  `scripts/selfupdate_manifest.py`, run once through `python3`.
+  - It skips without `python3`, unless `SELFUPDATE_REQUIRE_PYTHON=1`.
+  - `SELFUPDATE_DIFFERENTIAL_N` and `SELFUPDATE_DIFFERENTIAL_SEED` widen a
+    hunt.
 - **`make apicheck`** runs `scripts/check-api-compat.sh`: the pinned
   `apidiff` compares the working tree with the newest `v1.*` tag (or
   `BASE=`), and any incompatible change fails it.
@@ -175,8 +190,12 @@ interpolated into shell.
   the Go version read from `go.mod`.
   - **Every OS:** `go test`, plus, under bash, the refuse-existing-release
     test.
-  - **Linux and macOS:** `go test -race`.
+  - **Linux and macOS:** `go test -race`, with
+    `SELFUPDATE_REQUIRE_PYTHON=1`, so the differential runs rather than
+    skips.
   - **Linux also:** a full-history checkout; `go test -shuffle=on -count=2`;
+    the fuzz script's test, then `make fuzz`, with the corpus uploaded as
+    an artifact when it fails;
     `go vet` for `freebsd/amd64`, `openbsd/amd64` and `linux/386`;
     `go vet`, `gofmt`, `go mod tidy -diff`, `make lint` (golangci-lint
     v2.13.2); `make apicheck` and the gate's own test; `govulncheck` v1.7.0;

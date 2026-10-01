@@ -113,7 +113,10 @@ It runs `scripts/go-precheck.sh`: `gofmt` on the files;
 `darwin` and `windows` with `CGO_ENABLED=0`, the same runs as `make lint` and
 CI (`docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md` §5);
 `go vet` and `go test` on the packages the files belong to; and
-`govulncheck ./...` (`GO_PRECHECK_SKIP_VULN=1` skips it offline). `golint` is
+`govulncheck ./...` (`GO_PRECHECK_SKIP_VULN=1` skips it offline). The
+`selfupdate` tests include `TestManifestDifferential`, which needs
+`python3` and skips without it; set `SELFUPDATE_REQUIRE_PYTHON=1` to make it
+mandatory, as CI does on Linux and macOS. `golint` is
 not used: its checks are `revive`'s `exported`, `package-comments` and
 `var-naming` rules in `.golangci.yml`. A file that fails is not committed.
 

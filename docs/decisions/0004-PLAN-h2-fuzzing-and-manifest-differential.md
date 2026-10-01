@@ -592,3 +592,40 @@ it. Nothing else changes.
 * The Windows test host passed `go vet ./...`,
   `go test -race -count=1 ./...`, the verifier's shell test and
   `go-fuzz_test.sh` (12 passed).
+
+### Step 5: documentation and close-out (2026-10-01)
+
+**What changed.**
+
+* **`docs/architecture.md`.**
+  * The tree lists `scripts/selfupdate_manifest.py` and
+    `scripts/go-fuzz.sh`.
+  * "Tooling" adds `make fuzz` (discovery, the floor, `FUZZTIME`, the 5 s
+    minimization cap, where a failing input goes) and the differential
+    (what it compares, and its three environment variables).
+  * The CI summary adds `SELFUPDATE_REQUIRE_PYTHON=1` on the `-race` legs,
+    and the fuzz test, `make fuzz` and the corpus artifact on Linux.
+* **`docs/README.md`** gains the PLAN's two "I want to…" rows: "fuzz
+  locally", and "know what to do when CI finds a crasher".
+* **`AGENTS.md`, "Pre-add checks"** says the `selfupdate` tests include the
+  differential, which skips without `python3` unless
+  `SELFUPDATE_REQUIRE_PYTHON=1`.
+
+**Verification (the PLAN's list).**
+
+* `make lint` passed (three targets), and `make apicheck` reported
+  `compatible with v1.2.0`.
+* `SELFUPDATE_REQUIRE_PYTHON=1 go test -race -count=1 ./...` and
+  `go test -shuffle=on -count=2 ./...` passed on macOS.
+* `make fuzz` passed (Step 4's record has its numbers).
+* `verify-selfupdate-release_test.sh` passed. `go-fuzz_test.sh`: 12 passed.
+  `check-api-compat_test.sh`: 6 passed.
+* `make vuln`: `No vulnerabilities found`. `go mod tidy -diff` is clean,
+  and `shellcheck scripts/*.sh` is clean.
+* Markdown lint is clean, and every link in `docs/README.md`,
+  `docs/architecture.md`, `AGENTS.md` and this PLAN resolves.
+* The Windows test host passed in Steps 2–4; Step 5 changed only
+  documentation.
+* **Not yet:** CI on the pushed tree, with the `fuzz` step's four runs and the
+  differential (not skipped) in the Linux log. This PLAN stays
+  `in-progress` until then.
