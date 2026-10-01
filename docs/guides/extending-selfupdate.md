@@ -71,6 +71,46 @@ Pointers:
 - `selfupdate/e2e_github_test.go`: no `Authorization` reaches the download
   origin
 
+## Drive an update from a TUI or event loop
+
+A TUI cannot sit blocked inside `Run`: it has to keep rendering. `Start`
+runs the request in its own goroutine and returns a `Stream`, which the
+event loop pulls from with `Next(ctx)` or `All(ctx)`.
+
+- **`Progressed`** carries every event, in order. Byte progress
+  (`EventProgress`) is coalesced, so a slow UI sees the newest count and
+  never slows the download. Turn it on for the run with
+  `WithProgressInterval`.
+- **`*ConfirmNeeded`** carries the `Prompt`. Call `Answer(ok)`, or
+  `Cancel(err)`. `Request.Yes`, or `Start(…, WithConfirmer(c))`, means it
+  never appears.
+- **`*CredentialNeeded`** appears when `PromptCredential()` is in the
+  source's credential chain, or is passed as `WithCredentials`. Call
+  `Supply(cred)` or `Cancel(err)`. A refused credential prompts once more,
+  with `Request.Cause` set.
+- **`Finished`** comes last, once the run has returned: recovery has run
+  and the session is closed. `Next` then returns `io.EOF`.
+
+`Stream.Cancel` cancels the run and still delivers `Finished`, so ctrl+c
+can wait for the real outcome. The host must answer every request or call
+`Cancel`; an unanswered request keeps the run waiting.
+
+In Bubble Tea, `Next` is the "wait for activity" command: a `tea.Cmd`
+that calls `s.Next(ctx)` and returns the interaction as a message, then is
+issued again from `Update`. The planned `go-tui-lib/updatetea` adapter
+packages that pattern, with a progress bar, a masked input and a confirm
+prompt (0004-MADR §4).
+
+`Updater.RunWith` is the same per-run override without a `Stream`:
+`WithReporter`, `WithConfirmer`, `WithCredentials` and
+`WithProgressInterval` apply to that run only, so one `Updater` serves a
+`--json` CLI, a terminal prompt and a TUI.
+
+- `ExampleStart`, `ExampleStream_All`, `ExampleUpdater_RunWith`,
+  `ExamplePromptCredential`
+- `selfupdate/stream_run_test.go`: cancellation mid-download, prompts,
+  and the delivery order
+
 ## Verify a signature later
 
 No publisher signature is verified by default. Two hooks run inside the

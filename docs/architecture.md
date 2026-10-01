@@ -56,7 +56,7 @@ docs/
 
 | Directory | Package | Non-test files | Test files | Non-standard imports |
 | :--- | :--- | :--- | :--- | :--- |
-| `selfupdate/` | `selfupdate` | 36 | 45, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `selfupdate/` | `selfupdate` | 38 | 50, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
 | `selfupdate/selfupdatetest/` | `selfupdatetest` | 2 | 1 | none (`selfupdate` itself) |
 
 - `selfupdate` began as `mcplib` `v1.6.0`'s `selfupdate` (commit
@@ -86,9 +86,22 @@ docs/
     `NewManagedInstallerFor` (`types.go`, `session.go`, `managed.go`), and
     `DryRun`, `KeepPrevious` and `CleanupPending` (`updater.go`,
     `session.go`, `standalone.go`).
+- The Phase 2 core API:
+  - **per-run options:** `runoptions.go` (`RunOption`, `RunWith`,
+    `WithReporter`, `WithConfirmer`, `WithCredentials`,
+    `WithProgressInterval`). An unexported `run` embeds the `Updater` and
+    shadows its source, reporter, confirmer and progress interval, and the
+    run's methods take it as their receiver. `GitHubSource.WithCredentials`
+    gives a run its own copy of the source, client included;
+  - **the interaction stream:** `stream.go` (`Start`, `Stream`,
+    `Progressed`, `ConfirmNeeded`, `CredentialNeeded`, `Finished`). It is
+    a mutex-guarded queue that coalesces only trailing progress, with a
+    one-slot wake channel and a channel closed after `Finished`.
+    `PromptCredential` finds the run's `Stream` through the run's context.
 - `selfupdatetest` provides `NewRelease`, `FakeSource`,
   `RecordingReporter`, `ScriptedConfirmer`, and `GitHubServer`, a fake
-  GitHub API on one TLS origin whose asset requests redirect to a second.
+  GitHub API on one TLS origin whose asset requests redirect to a second,
+  which can require a token.
 - The coordinator (`updater.go`) owns the order of every step. It validates
   the selected binary and manifest itself, and parses `SHA256SUMS` before any
   staging. It pins an exact `--version`, and closes the session before

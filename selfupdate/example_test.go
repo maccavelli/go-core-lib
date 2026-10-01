@@ -3,6 +3,7 @@ package selfupdate_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -267,4 +268,142 @@ func ExampleResult_Document() {
 	}
 	fmt.Println(string(out))
 	// Output: {"schema_version":1,"product":"demo","current_version":"v1.0.0","target_version":"v1.1.0","asset_name":"demo-linux-amd64","operation":"upgrade","checked":false,"applied":false,"declined":false,"dry_run":true,"service_installed":false,"service_was_running":false}
+}
+
+// exampleUpdater updates a stand-in binary in a temporary directory from
+// an in-memory release, so the examples below run offline. A program
+// passes its GitHubSource and its own installer instead.
+func exampleUpdater() (*selfupdate.Updater, func()) {
+	dir, err := os.MkdirTemp("", "selfupdate-example-")
+	if err != nil {
+		panic(err)
+	}
+	if dir, err = filepath.EvalSymlinks(dir); err != nil {
+		panic(err)
+	}
+	exe := filepath.Join(dir, "demo")
+	if err := os.WriteFile(exe, []byte("old\n"), 0o755); err != nil {
+		panic(err)
+	}
+	plats := []selfupdate.Platform{{OS: "linux", Arch: "amd64"}}
+	src := selfupdatetest.NewFakeSource("v1.1.0", selfupdatetest.NewRelease("demo", "v1.1.0", plats,
+		func(selfupdate.Platform) []byte { return []byte("demo v1.1.0\n") }))
+	selector, err := selfupdate.NewExactAssetSelector(plats)
+	if err != nil {
+		panic(err)
+	}
+	installer, err := selfupdate.NewStandaloneInstaller(selfupdate.InstallOptions{
+		TargetPolicy: selfupdate.TargetPolicy{ExecutablePath: exe, AllowedRoots: []string{dir}},
+	})
+	if err != nil {
+		panic(err)
+	}
+	u, err := selfupdate.New(selfupdate.Config{
+		Source: src, Versions: selfupdate.NewStrictVersionPolicy(), Assets: selector, Installer: installer,
+		Reporter: selfupdate.DiscardReporter(), Confirmer: selfupdate.NonInteractiveConfirmer(),
+		Limits: selfupdate.DefaultLimits(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	return u, func() { _ = os.RemoveAll(dir) }
+}
+
+func exampleRequest() selfupdate.Request {
+	return selfupdate.Request{
+		Product: "demo", CurrentVersion: "v1.0.0", CurrentBuild: selfupdate.ReleaseBuild,
+		Platform: selfupdate.Platform{OS: "linux", Arch: "amd64"},
+	}
+}
+
+// One Updater, configured once, reports this run as text and approves it
+// without the configured confirmer.
+func ExampleUpdater_RunWith() {
+	u, cleanup := exampleUpdater()
+	defer cleanup()
+	res, err := u.RunWith(context.Background(), exampleRequest(),
+		selfupdate.WithReporter(selfupdate.NewTextReporter(os.Stdout)),
+		selfupdate.WithConfirmer(selfupdate.ConfirmerFunc(func(context.Context, selfupdate.Prompt) (bool, error) {
+			return true, nil
+		})))
+	fmt.Println(res.Applied, err)
+	// Output:
+	// selfupdate: resolving-target product=demo current=v1.0.0
+	// selfupdate: fetching-release product=demo current=v1.0.0
+	// selfupdate: selected product=demo current=v1.0.0 target=v1.1.0 asset=demo-linux-amd64
+	// selfupdate: downloading-manifest product=demo target=v1.1.0 asset=SHA256SUMS
+	// selfupdate: downloading-binary product=demo target=v1.1.0 asset=demo-linux-amd64 bytes=12
+	// selfupdate: verified product=demo target=v1.1.0 asset=demo-linux-amd64
+	// selfupdate: installing product=demo target=v1.1.0 asset=demo-linux-amd64
+	// selfupdate: complete product=demo current=v1.0.0 target=v1.1.0 asset=demo-linux-amd64 release asset integrity verified
+	// true <nil>
+}
+
+// An event loop pulls each interaction, answers the confirmation, and stops
+// at Finished. A Bubble Tea program does the same from a command that calls
+// Next and returns the interaction as a message.
+func ExampleStart() {
+	u, cleanup := exampleUpdater()
+	defer cleanup()
+	s := selfupdate.Start(context.Background(), u, exampleRequest())
+	for {
+		it, err := s.Next(context.Background())
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		switch v := it.(type) {
+		case selfupdate.Progressed:
+			fmt.Println("event:", v.Event.Kind)
+		case *selfupdate.ConfirmNeeded:
+			fmt.Printf("confirm: %s %s to %s\n", v.Prompt.Operation, v.Prompt.Product, v.Prompt.Target)
+			v.Answer(true)
+		case selfupdate.Finished:
+			fmt.Println("applied:", v.Result.Applied, v.Err)
+			return
+		}
+	}
+	// Output:
+	// event: resolving-target
+	// event: fetching-release
+	// event: selected
+	// confirm: upgrade demo to v1.1.0
+	// event: downloading-manifest
+	// event: downloading-binary
+	// event: verified
+	// event: installing
+	// event: complete
+	// applied: true <nil>
+}
+
+// All ranges over the run. Request.Yes approves up front, so no
+// ConfirmNeeded is delivered.
+func ExampleStream_All() {
+	u, cleanup := exampleUpdater()
+	defer cleanup()
+	req := exampleRequest()
+	req.Yes = true
+	events := 0
+	for it := range selfupdate.Start(context.Background(), u, req).All(context.Background()) {
+		switch v := it.(type) {
+		case selfupdate.Progressed:
+			events++
+		case selfupdate.Finished:
+			fmt.Println(events, "events; applied:", v.Result.Applied)
+		}
+	}
+	// Output: 8 events; applied: true
+}
+
+// PromptCredential goes last in a chain. Outside a Stream it has nothing to
+// offer, so the same chain serves Run, which never prompts, and Start, which
+// does.
+func ExamplePromptCredential() {
+	chain := selfupdate.ChainCredentials(
+		selfupdate.EnvCredential("", "DEMO_EXAMPLE_UNSET_TOKEN"),
+		selfupdate.PromptCredential(),
+	)
+	_, err := chain.Credential(context.Background(), selfupdate.CredentialRequest{})
+	fmt.Println(errors.Is(err, selfupdate.ErrNoCredential))
+	// Output: true
 }

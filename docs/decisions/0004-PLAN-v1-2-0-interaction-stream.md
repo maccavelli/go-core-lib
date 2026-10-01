@@ -920,3 +920,108 @@ That reader blocks on the input, holds no answered line, and outlives
 * No deviation. The `checkNow` return is how "every confirmer test has a
   goroutine-leak check" (MADR H6) is met for tests whose cleanup releases
   goroutines.
+
+### Step 7: documentation and close-out (2026-10-01)
+
+**What changed.**
+
+* **`selfupdate/doc.go`** gains "Driving an update from an event loop":
+  `RunWith` and its options, `Start`, what a `Stream` delivers, `Cancel`
+  still delivering `Finished`, and the host's duty to answer or cancel.
+* **`selfupdate/example_test.go`** gains the PLAN's four examples, offline
+  through `selfupdatetest.FakeSource` and a temporary target, each with
+  `// Output:`:
+  * `ExampleUpdater_RunWith`, which reports the run as text with a per-run
+    confirmer;
+  * `ExampleStart`, a `Next` loop that answers `ConfirmNeeded`;
+  * `ExampleStream_All`;
+  * `ExamplePromptCredential`.
+* **`docs/guides/extending-selfupdate.md`** gains "Drive an update from a
+  TUI or event loop". It covers each interaction, cancellation, the Bubble
+  Tea "wait for activity" pattern and the planned `go-tui-lib/updatetea`,
+  and points to the examples and tests.
+* **`docs/README.md`** gains the row "drive an update from a TUI or event
+  loop".
+* **`docs/architecture.md`** gains the Phase 2 core API (`runoptions.go`,
+  the `run` scope, `stream.go`, `PromptCredential`) and `RequireToken`. The
+  file counts are now 38 and 50 in `selfupdate`.
+
+**Verification (the PLAN's list).**
+
+* `make pre-add-check` passed on `doc.go` and `example_test.go`, and
+  `make lint` passed for all three targets.
+* `go test -race -count=3 ./...` and `go test -shuffle=on -count=2 ./...`
+  passed.
+* `make vuln`: `No vulnerabilities found.`
+* `go mod tidy -diff` is clean, and `git diff v1.1.0 -- go.mod go.sum` is
+  empty.
+* `make apicheck`: `check-api-compat: compatible with v1.1.0`.
+* Markdown lint is clean, and the link resolver found no broken link in
+  `docs/README.md`, `docs/architecture.md` or the guide.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`, including every example.
+* **Not yet:** CI on the pushed tree. This PLAN stays `in-progress` until it
+  is green.
+
+**`apidiff -m` against `v1.1.0` (all changes).** It reports 17 changes, all
+compatible. They are exactly the API this PLAN lists:
+
+```text
+- ./selfupdate.(*GitHubSource).WithCredentials: added
+- ./selfupdate.(*Updater).RunWith: added
+- ./selfupdate.ConfirmNeeded: added
+- ./selfupdate.CredentialNeeded: added
+- ./selfupdate.CredentialedSource: added
+- ./selfupdate.Finished: added
+- ./selfupdate.Interaction: added
+- ./selfupdate.Progressed: added
+- ./selfupdate.PromptCredential: added
+- ./selfupdate.RunOption: added
+- ./selfupdate.Start: added
+- ./selfupdate.Stream: added
+- ./selfupdate.WithConfirmer: added
+- ./selfupdate.WithCredentials: added
+- ./selfupdate.WithProgressInterval: added
+- ./selfupdate.WithReporter: added
+- ./selfupdate/selfupdatetest.(*GitHubServer).RequireToken: added
+```
+
+### Release notes for `v1.2.0`
+
+**Additions.** Everything is additive; `make apicheck` reports no
+incompatible change against `v1.1.0`.
+
+* **Per-run options:**
+  * `Updater.RunWith(ctx, req, opts...)`, with `WithReporter`,
+    `WithConfirmer`, `WithCredentials` and `WithProgressInterval`;
+  * `RunOption`.
+* **Per-run credentials:**
+  * `CredentialedSource`, an optional source interface;
+  * `GitHubSource.WithCredentials`, which returns a copy with its own
+    provider, credential state and client.
+* **The interaction stream:**
+  * `Start(ctx, u, req, opts...)` and `Stream` (`Next`, `All`, `Cancel`);
+  * `Interaction`, with `Progressed`, `*ConfirmNeeded` (`Answer`, `Cancel`),
+    `*CredentialNeeded` (`Supply`, `Cancel`) and `Finished`.
+* **Credential prompts:** `PromptCredential()`, a provider that asks the
+  host inside a `Stream` and offers nothing elsewhere.
+* **`selfupdatetest`:** `GitHubServer.RequireToken`.
+
+**Behaviour changes.** None. `Run` is now `RunWith` with no options, and
+behaves exactly as before; the existing suite passed unchanged.
+
+**Migration notes.**
+
+* No code change is needed to upgrade from `v1.1.x`, and `go.mod` requires
+  nothing new.
+* **To drive an update from a UI:**
+  * call `Start`, then `Next` in the UI's event loop;
+  * answer each `*ConfirmNeeded` and `*CredentialNeeded`;
+  * call `Stream.Cancel` on ctrl+c, and wait for `Finished`.
+* **To prompt for a token only when one is needed:** put
+  `PromptCredential()` last in `GitHubOptions.Credentials`, after
+  `EnvCredential`.
+* **A custom `ReleaseSource` that wants per-run credentials** implements
+  `CredentialedSource`. It returns a copy with fresh credential state, and
+  rebinds anything, such as a redirect check, that reads the copy's
+  credential.

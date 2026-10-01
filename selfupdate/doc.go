@@ -15,6 +15,27 @@
 // ErrUpdateAvailable; Request.DryRun runs everything short of the install,
 // without prompting, and leaves the target untouched.
 //
+// # Driving an update from an event loop
+//
+// Updater.RunWith runs one request with per-run options, WithReporter,
+// WithConfirmer, WithCredentials and WithProgressInterval, so one Updater
+// can serve a --json CLI, a terminal prompt and a TUI without being
+// rebuilt.
+//
+// Start runs a request in its own goroutine and returns a Stream that an
+// event loop pulls from, with Next or All. The Stream delivers:
+//
+//   - Progressed, for every event in order, with byte progress coalesced
+//     so a slow UI never slows the download;
+//   - *ConfirmNeeded, which the host answers;
+//   - *CredentialNeeded, which PromptCredential raises when a credential is
+//     needed;
+//   - Finished, last, once the run has returned.
+//
+// Stream.Cancel cancels the run and still delivers Finished, so a UI can
+// wait for the real outcome rather than report one the run has not
+// reached. The host must answer every request or call Cancel.
+//
 // # Asking without installing
 //
 // NewChecker, or Updater.Checker, answers "is there an update?" as an
