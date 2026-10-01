@@ -196,7 +196,7 @@ type ChannelPolicy interface {
      `ValidChannel` accepts it. Otherwise the error is
      `selfupdate: channel %q is not offered by the version policy`.
    * A prerelease `TargetVersion` needs a `Channel` that `Admits` it
-     (MADR Q4). Otherwise:
+     (MADR Q4). *(D3: under a `ChannelPolicy` only.)* Otherwise:
      `selfupdate: %s is a prerelease; request a channel that admits it`.
    * `CurrentVersion` may be any valid tag under the policy, so a user
      running an rc can be checked on the stable channel.
@@ -474,3 +474,69 @@ numeric: SemVer allows `rc.x`. That mutation replaced it, and was killed.
   again afterwards.
 * With v2.14.0, `make lint` reports `0 issues` on all three targets.
 * `make apicheck`: `compatible with v1.2.0`.
+
+### Step 3: the request field and the cache (2026-10-01)
+
+**What changed.**
+
+* **`Request.Channel` and `CheckRequest.Channel`** are appended last.
+  `Checker.prepare` copies the channel into the `Request`.
+* **`validateChannel`** (`version.go`) is called at the end of
+  `validateRequest`:
+  * a non-empty channel needs a `ChannelPolicy` whose `ValidChannel`
+    accepts it;
+  * under a `ChannelPolicy`, a prerelease `TargetVersion` needs a channel
+    that `Admits` it.
+* **The cache file** is schema 2, with `channel` after `platform`. `Load`
+  accepts schemas 1 and 2, and a schema-1 document reads as the stable
+  channel. `Save` writes 2, and `CheckCached`'s key includes the channel.
+
+**Deviation D3 (2026-10-01): the scope of Q4.**
+
+* **Found.** Applying Q4 under every policy failed two existing tests:
+  `TestCheckerAvailability/configured_policy` and
+  `TestValidateRequestUsesConfiguredPolicy`. They are Phase 1's G2 proofs: a
+  plain custom policy that accepts prereleases pins `v1.2.3-rc.1`. A plain
+  policy has no channel, so Q4 refused the pin, overriding the policy's own
+  decision.
+* **Decision.** The owner chose "ChannelPolicy only".
+  * Q4 applies when the policy offers channels.
+  * A plain `VersionPolicy` keeps full control, so the G2 tests are
+    unchanged.
+  * The built-in path is unaffected, because `NewStrictVersionPolicy`
+    refuses prerelease tags.
+* **MADR.** §2's pinning bullet carries the amendment.
+
+**Tests.**
+
+* **`request_channel_test.go`** (new):
+  * `TestValidateRequestChannel`, eleven cases: known, unknown and stable
+    channels; a channel under the strict policy and under a plain policy;
+    the Q4 refusals and acceptances; running an rc on the stable channel;
+    and D3's plain-policy pin;
+  * `TestCheckerPrepareKeepsChannel`.
+* **`checkcache_test.go`.** These changes are the ones rule 3 lists:
+  * `wantCheckRecordJSON` is schema 2, with `"channel":""`;
+  * the unknown-schema test now uses schemas 3 and 0.
+
+  It also gains `schema1CheckRecordJSON` with `TestFileCheckStoreReadsSchema1`,
+  `TestFileCheckStoreKeepsChannel`, and `TestCheckCachedChannelIsolation`
+  (saved on `rc` and asked on stable, the reverse, and `rc` against `beta`).
+
+**Mutation proofs.** The PLAN's three plus three more; none survived:
+
+| Mutation | Killed by |
+| :--- | :--- |
+| `Channel` dropped from the file record | `channel after a round trip = ""` |
+| a schema-1 file refused | `a schema-1 record did not load: … check record schema 1 …` |
+| the prerelease-pin check removed | `a pinned prerelease with no channel: err = <nil>` |
+| the channel's validity not checked | `an unknown channel: err = <nil>` |
+| `prepare` drops the channel | `prepare = {… Channel: …}; want the channel carried` |
+| Q4 applied to plain policies (D3 reverted) | `a plain custom policy pins a prerelease: … request a channel that admits it` |
+
+**Checks.**
+
+* `make pre-add-check` passed on the six files (with v2.14.0), and
+  `make apicheck` reported `compatible with v1.2.0`.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`.

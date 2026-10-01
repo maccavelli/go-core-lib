@@ -195,6 +195,29 @@ func validateRequest(req Request, versions VersionPolicy) error {
 			return err
 		}
 	}
+	return validateChannel(req, versions)
+}
+
+// validateChannel checks Request.Channel against the policy. Under a
+// ChannelPolicy it also refuses a pinned prerelease unless the request names
+// a channel that admits it (0005-MADR §2, Q4). A plain VersionPolicy keeps
+// deciding which tags it accepts, as 0004-MADR G2 promises (0005-PLAN
+// deviation D3).
+func validateChannel(req Request, versions VersionPolicy) error {
+	cp, isChannelPolicy := versions.(ChannelPolicy)
+	if req.Channel != "" {
+		if !isChannelPolicy {
+			return fmt.Errorf("selfupdate: channel %q is not offered by the version policy", req.Channel)
+		}
+		if err := cp.ValidChannel(req.Channel); err != nil {
+			return err
+		}
+	}
+	if isChannelPolicy && req.TargetVersion != "" && semver.Prerelease(req.TargetVersion) != "" {
+		if req.Channel == "" || !cp.Admits(req.Channel, req.TargetVersion) {
+			return fmt.Errorf("selfupdate: %s is a prerelease; request a channel that admits it", req.TargetVersion)
+		}
+	}
 	return nil
 }
 

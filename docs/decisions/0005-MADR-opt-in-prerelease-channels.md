@@ -163,6 +163,12 @@ func NewSemverPolicy(o SemverOptions) (VersionPolicy, error)
   gains it.
 * **Pinning.** `TargetVersion` can name a prerelease only when the request
   names a channel that admits it (decision Q4).
+  *(Amended 2026-10-01, 0005-PLAN deviation D3:)*
+  * this applies under a `ChannelPolicy`;
+  * a plain custom `VersionPolicy` keeps deciding which tags it accepts, as
+    0004-MADR G2 promises;
+  * `NewStrictVersionPolicy` refuses prerelease tags anyway, so the
+    built-in path never pins a prerelease without a channel.
 
 ### 3. Discovery: `ReleaseLister`
 

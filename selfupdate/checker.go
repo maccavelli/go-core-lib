@@ -43,6 +43,9 @@ type CheckRequest struct {
 	TargetVersion string
 	// Platform selects the asset matrix entry. Zero means runtime GOOS/GOARCH.
 	Platform Platform
+	// Channel selects a release channel, as Request.Channel does. It is part
+	// of CheckCached's key, so each channel keeps its own answer.
+	Channel string
 }
 
 // Availability is the answer to a CheckRequest. Its names match Result
@@ -113,6 +116,7 @@ func (c *Checker) prepare(cr CheckRequest) (Request, error) {
 		TargetVersion:  cr.TargetVersion,
 		Platform:       cr.Platform,
 		CheckOnly:      true,
+		Channel:        cr.Channel,
 	}
 	if err := validateRequest(req, c.versions); err != nil {
 		if validateProduct(req.Product) != nil {

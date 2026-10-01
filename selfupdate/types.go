@@ -72,6 +72,10 @@ type Request struct {
 	// DryRun downloads, verifies, transforms and probes the release, then
 	// discards it without prompting: nothing is installed.
 	DryRun bool
+	// Channel selects a release channel offered by a ChannelPolicy, such as
+	// "rc" or "beta". Empty is the stable channel, which never installs a
+	// prerelease (0005-MADR §2).
+	Channel string
 }
 
 // Operation is the classified action for a request and selected release.

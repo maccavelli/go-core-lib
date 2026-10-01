@@ -138,8 +138,8 @@ type fileCheckPlatform struct {
 	Arch string `json:"arch"`
 }
 
-// fileCheckRecord is the on-disk schema, version 1. Field order is the
-// document's key order.
+// fileCheckRecord is the on-disk schema, version 2: version 1 plus channel
+// (0005-PLAN Step 3). Field order is the document's key order.
 type fileCheckRecord struct {
 	SchemaVersion   int               `json:"schema_version"`
 	Product         string            `json:"product"`
@@ -147,6 +147,7 @@ type fileCheckRecord struct {
 	CurrentBuild    string            `json:"current_build"`
 	TargetVersion   string            `json:"target_version"`
 	Platform        fileCheckPlatform `json:"platform"`
+	Channel         string            `json:"channel"`
 	Available       bool              `json:"available"`
 	ForceRequired   bool              `json:"force_required"`
 	Operation       string            `json:"operation"`
@@ -157,7 +158,12 @@ type fileCheckRecord struct {
 	NotBefore       string            `json:"not_before"`
 }
 
-const checkRecordSchema = 1
+// checkRecordSchema is written; oldestCheckRecordSchema is the oldest still
+// read. A schema-1 document has no channel, so it reads as the stable one.
+const (
+	checkRecordSchema       = 2
+	oldestCheckRecordSchema = 1
+)
 
 func (s fileCheckStore) Load(context.Context) (CheckRecord, error) {
 	f, err := os.Open(s.path)
@@ -175,7 +181,7 @@ func (s fileCheckStore) Load(context.Context) (CheckRecord, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return CheckRecord{}, fmt.Errorf("selfupdate: malformed check record: %w: %w", err, ErrNoCheckRecord)
 	}
-	if doc.SchemaVersion != checkRecordSchema {
+	if doc.SchemaVersion < oldestCheckRecordSchema || doc.SchemaVersion > checkRecordSchema {
 		return CheckRecord{}, fmt.Errorf("selfupdate: check record schema %d: %w", doc.SchemaVersion, ErrNoCheckRecord)
 	}
 	rec, err := doc.record()
@@ -231,6 +237,7 @@ func newFileCheckRecord(rec CheckRecord) fileCheckRecord {
 		CurrentBuild:    rec.Request.CurrentBuild.String(),
 		TargetVersion:   rec.Request.TargetVersion,
 		Platform:        fileCheckPlatform{OS: rec.Request.Platform.OS, Arch: rec.Request.Platform.Arch},
+		Channel:         rec.Request.Channel,
 		Available:       rec.Availability.Available,
 		ForceRequired:   rec.Availability.ForceRequired,
 		Operation:       rec.Availability.Operation.String(),
@@ -265,6 +272,7 @@ func (d fileCheckRecord) record() (CheckRecord, error) {
 		CurrentBuild:   build,
 		TargetVersion:  d.TargetVersion,
 		Platform:       Platform{OS: d.Platform.OS, Arch: d.Platform.Arch},
+		Channel:        d.Channel,
 	}
 	return CheckRecord{
 		Request: req,
