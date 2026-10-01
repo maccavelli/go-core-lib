@@ -32,8 +32,13 @@ jobs:
       - run: go test ./...
       # The race detector needs cgo, which the Linux and macOS runners have
       # (0003-MADR D9; 0002-PLAN V3; 0004-MADR H7).
+      # The manifest differential must run, not skip, where python3 is on
+      # PATH; the Windows runner names it python
+      # (0004-PLAN-h2-fuzzing-and-manifest-differential.md Step 3).
       - name: go test -race
         if: runner.os != 'Windows'
+        env:
+          SELFUPDATE_REQUIRE_PYTHON: "1"
         run: go test -race -count=1 ./...
       # Order-dependent tests fail here (0004-MADR H7).
       - name: go test -shuffle

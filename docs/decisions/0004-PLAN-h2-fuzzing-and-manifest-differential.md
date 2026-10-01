@@ -423,3 +423,88 @@ close-out, at that point.
   [0004-PLAN-v1-1-0-core-api.md](0004-PLAN-v1-1-0-core-api.md) Step 4's D1.
   The `rstrip` stays: it mirrors Go's `TrimRight` line for line.
 * **MADR.** No change.
+
+### Step 3: the manifest differential (2026-10-01)
+
+**What changed.**
+
+* **`selfupdate/manifest_differential_test.go`** (new) adds
+  `TestManifestDifferential`, as the PLAN describes.
+  * `python3` comes from `exec.LookPath`. It is a failure under
+    `SELFUPDATE_REQUIRE_PYTHON=1`, and a skip otherwise.
+  * N is 5000 and the seed is `20261001`. `SELFUPDATE_DIFFERENTIAL_N` and
+    `SELFUPDATE_DIFFERENTIAL_SEED` override them; a non-positive value fails.
+  * It uses PCG from `math/rand/v2`, and one
+    `python3 -B ../scripts/selfupdate_manifest.py parse DIR` run.
+  * It compares accept or reject, and hex-encoded entries. It requires an
+    exact result count, and a 15% floor for each outcome.
+  * At most ten disagreements are printed, each with the index, the seed,
+    both verdicts and the input (`%q`).
+* **The generator.** One case in ten is random tokens. The others are one to
+  four lines, drawn from:
+  * blank lines (including NBSP and U+3000), `#` comments, and lines of
+    4094–4097 bytes, as a comment or as an entry;
+  * entries, where the digest is valid, uppercase, mixed case, 63 or 65
+    characters, has a `g`, or starts with a full-width digit;
+  * separators from the PLAN's list, of which 1 in 12 is one that is not a
+    separator: U+001C..U+001F, none, a bare `\x85` byte or U+200B;
+  * names that are good (one with invalid UTF-8, one with NUL), bad, marked
+    `*`, or duplicated;
+  * an optional leading separator, a third field or trailing whitespace;
+  * optionally a BOM, and `\n`, `\r\n` or `\r\r\n` line ends, with no
+    final newline a quarter of the time.
+* **CI.** The `go test -race` step (Linux and macOS) sets
+  `SELFUPDATE_REQUIRE_PYTHON: "1"`.
+
+**Result.** The parsers agree on every case.
+
+* The default run: `N=5000 seed=20261001 accepted=1273 rejected=3727`, in
+  about 1.5 s.
+* A longer hunt, at N = 50,000 with seeds 1, 2 and 3, found no disagreement
+  in 150,000 cases, with about 26% accepted each time. So the
+  deviation path in the PLAN was not taken.
+
+**Proofs** (scratch copies):
+
+| Mutation | Failure |
+| :--- | :--- |
+| `go_isspace` drops the `Zl` and `Zp` categories | `case 16 (seed 20261001) disagrees: go: <nil>; python: ok=false 00016 line 1: malformed digest` |
+| Python's line limit `>=` becomes `>` | `case 224 … go: selfupdate: SHA256SUMS is malformed: bufio.Scanner: token too long; python: ok=true` |
+| the driver drops its last case | `the verifier's parser returned 4999 results for 5000 cases` |
+| the generator emits only random bytes | the floor: `accepted=46 rejected=4954` of 5000 |
+| no `python3` on `PATH`, with `SELFUPDATE_REQUIRE_PYTHON=1` (a `PATH` holding only `go`, under `env -u BASH_ENV`) | `--- FAIL`: `python3 is required (SELFUPDATE_REQUIRE_PYTHON=1): exec: "python3": executable file not found` |
+
+Two contrasts on the same copies:
+
+* Without the variable, the same `PATH` gives `--- SKIP`.
+* Under the `Zl`/`Zp` mutation, `scripts/verify-selfupdate-release_test.sh`
+  **passed** ("all fixtures passed"). So no parity fixture catches it, and
+  only the differential does, as the PLAN expected.
+
+**A tooling finding.**
+
+* The first pre-add run failed `staticcheck` ST1018: a string literal
+  contained U+200B. The file-writing tool had decoded every `\uXXXX` in
+  the test's string literals into the character itself.
+* A rewriter, run in Python, escaped the non-ASCII in Go interpreted
+  string literals back to `\uXXXX`. It left comments, raw strings and
+  rune literals alone, and the run's counts were identical afterwards.
+* A scan of every Go file in the package for the same problem found two:
+  * `runoptions_test.go`, from Phase 2, which has a visible `→` in a
+    failure message;
+  * `download.go`, from before this PLAN (`e5bb201`), which has a literal
+    U+2028 in a rune literal in `unicode.Is(unicode.Cf, r) || r == …`.
+    ST1018 does not check rune literals.
+
+  Neither is in this PLAN's scope; both are recorded here.
+
+**Checks.**
+
+* `make pre-add-check` passed on the test file.
+* `make apicheck`: `compatible with v1.2.0`.
+* `actionlint` and `check-workflows.sh --rule expressions` on `ci.yml` are
+  clean.
+* `go test -race` with the variable set passed locally.
+* The Windows test host passed `go vet ./...` and
+  `go test -race -count=1 ./...`. The differential ran there, not skipped:
+  `N=5000 … accepted=1273 rejected=3727`, in 16 s under `-race`.
