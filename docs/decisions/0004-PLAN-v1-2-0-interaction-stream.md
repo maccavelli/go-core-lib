@@ -71,9 +71,9 @@ No new module is required, and `go.mod` does not change.
 * **`go-tui-lib/updatetea`** (MADR §4, "Adapter"), and the bootstrap of
   go-tui-lib that it needs. Both are recorded in go-tui-lib. Facts for that
   work:
-  * the only TUI consumer, ocp-login, uses Bubble Tea v2
-    (`charm.land/bubbletea/v2 v2.0.9`, `charm.land/bubbles/v2 v2.2.1`);
-  * its reusable pieces are unexported, in `internal/ui`.
+  * the only TUI consumer, ocp-login, uses Bubble Tea v2 and Bubbles v2;
+  * its reusable pieces are unexported, inside the program.
+  *(Re-worded to patterns by amendment P1.)*
 * **ocp-login's adoption.** The owner deferred it (MADR, owner decision 2).
 * **MADR §5 (Phase 3), §6 records and §7 (Phase 4).** That includes the
   prerelease-channel record, which the owner wants and which is scheduled
@@ -117,13 +117,13 @@ No new module is required, and `go.mod` does not change.
   * The provider is called with the request's context, which is the run's
     context.
 * **The precedent.** ocp-login runs its update inside Bubble Tea with a
-  64-slot channel per step and a self-reissuing `tea.Cmd`
-  (`internal/ui/steps.go:200-216`).
-  * Its ctrl+c handler sets `context.Canceled` and quits without cancelling
-    anything (`:225-231`). That is O6. After the quit nothing drains the
-    channel, and the producer can block forever on a full buffer.
-  * Its token prompt and confirmation both happen outside the run
-    (`cmd/update.go:126-259`), which is how O3 arises.
+  bounded channel per step and a self-reissuing `tea.Cmd`.
+  *(Re-worded to patterns by amendment P1.)*
+  * Its ctrl+c handling reports a cancel and quits without cancelling the
+    install. That is O6. After the quit nothing drains the channel, and the
+    producer can block forever on a full buffer.
+  * Its token prompt and confirmation both happen outside the run, which is
+    how O3 arises.
 
 ### Compatibility rules the design follows
 

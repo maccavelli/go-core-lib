@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-09-30
+date: 2026-10-02
 decision-makers: go-core-lib maintainers
 consulted: ocp-login maintainers (the TUI updater this record generalises); go-tui-lib maintainers (the proposed home of the Bubble Tea adapter)
 informed: owners of the six selfupdate consumers
@@ -40,9 +40,8 @@ The record has two parts:
     `sanbornm/go-selfupdate`.
   * **Consumers**: the six programs on `mcplib/selfupdate`, their
     command surfaces, and how much code they duplicate.
-  * **ocp-login**: its GitLab updater (`internal/selfupdate/`), its update
-    command (`cmd/update.go`, `cmd/update_auth.go`) and its Bubble Tea step
-    runner (`internal/ui/steps.go`).
+  * **ocp-login**: its GitLab updater, its update command and its Bubble
+    Tea step runner. *(Re-worded to patterns by amendment P1.)*
   * **Round-2 debugging and harness**: the code that
     [0003-MADR-remediate-debugging-pass-findings.md](0003-MADR-remediate-debugging-pass-findings.md)
     added, coverage, fuzzing, and the workflow checkers.
@@ -146,12 +145,14 @@ ocp-login does not use `selfupdate`. Its own updater has these defects:
 
 | ID | Finding | Evidence |
 | :--- | :--- | :--- |
-| O1 | **The Windows receipt is never read, and stale helper files are never cleaned.** `ConsumeReceipt` and `CleanStaleUpdateFiles` have no production caller. | Verified: `internal/selfupdate/update_helper_windows.go:228,250` |
-| O2 | **On Windows the post-install smoke test runs the old binary.** The commit only starts a helper that waits for this process to exit. The smoke test that follows runs the old executable, which reports the old version, so the update is reported as failed and then installed anyway. | Verified: `internal/selfupdate/update.go:250-262`, `install_windows.go:55-60` |
-| O3 | **The installed version may not be the one the user confirmed.** The prompt names `plan.LatestVersion`. The download step then calls `Plan` again without pinning the tag, so "latest" is resolved a second time. | Verified: `cmd/update.go:189,226` |
-| O4 | **The token can reach another host.** `PRIVATE-TOKEN` is a custom header, and Go does not strip custom headers on a cross-host redirect. The client sets no `CheckRedirect` and does not require HTTPS for release links. | Verified: `internal/selfupdate/gitlab.go:123`, no `CheckRedirect` |
-| O5 | **The library writes straight to `os.Stderr`, which corrupts a live Bubble Tea frame.** | `gitlab.go`, `update.go`, `install.go` |
-| O6 | **Ctrl-C during "Installing" reports "cancelled" while the install goroutine keeps running.** | `internal/ui/steps.go:225-231` |
+| O1 | **On Windows the update receipt is never read, and stale helper files are never cleaned.** The code that would do both has no production caller. | Verified in ocp-login's source |
+| O2 | **On Windows the post-install smoke test runs the old binary.** The commit only starts a helper that waits for this process to exit. The smoke test that follows runs the old executable, which reports the old version, so the update is reported as failed and then installed anyway. | Verified in ocp-login's source |
+| O3 | **The installed version may not be the one the user confirmed.** The prompt names the latest version found. The download step then resolves "latest" again without pinning the tag. | Verified in ocp-login's source |
+| O4 | **A credential-handling defect, for ocp-login's maintainers to fix.** | Verified in ocp-login's source |
+| O5 | **The library writes straight to `os.Stderr`, which corrupts a live Bubble Tea frame.** | Read in ocp-login's source |
+| O6 | **Ctrl-C during "Installing" reports "cancelled" while the install goroutine keeps running.** | Read in ocp-login's source |
+
+*(Re-worded to patterns by amendment P1.)*
 
 ### 5. What ocp-login does that `selfupdate` cannot yet carry
 
@@ -166,7 +167,7 @@ ocp-login is the benchmark for the TUI question. Its updater has features
 | Executable format and architecture check | yes (ELF, Mach-O, PE) | no (G9) |
 | Smoke test before and after install | yes | no, and staging is not runnable (mode 0600, no `.exe`) (G9) *(corrected: on Windows an extensionless staging file runs; see the §3 amendments)* |
 | Dry run | yes | no (G11) |
-| Inline Bubble Tea front end, ctrl+c cancels | yes (`steps.go`) | no framework-neutral bridge exists |
+| Inline Bubble Tea front end, ctrl+c cancels | yes *(re-worded to patterns by amendment P1)* | no framework-neutral bridge exists |
 | Immutable releases, advertised-size check, lock, backup and restore, rate-limit errors | no | yes |
 | Confirmation happens after selection, inside one run | no (O3) | yes |
 | Synchronous Windows replacement, no helper | no (helper and receipt) | yes |
@@ -548,8 +549,9 @@ func NewManagedInstallerFor(inner Installer, life Lifecycle, rec Reconciler) (*M
 ### 4. Phase 2: framework-neutral interaction, and the TUI adapter
 
 A TUI cannot sit blocked inside `Run`: it has to keep rendering. So its
-event loop must pull from the run. ocp-login does this by hand with a
-64-slot channel and a self-reissuing `tea.Cmd` (`internal/ui/steps.go:196-216`).
+event loop must pull from the run. ocp-login does this by hand in its step
+runner, with a bounded channel and a self-reissuing `tea.Cmd`.
+*(Re-worded to patterns by amendment P1.)*
 That pattern is right; it should live in the library once, not in each
 program.
 
@@ -974,6 +976,63 @@ signature would add almost nothing today.
   its vulnerability-scan scope and its dependency policy, and needs
   path-prefixed tags.
 * Bad, because go-tui-lib already exists as the home for Charm-stack code.
+
+## Amendments
+
+### P1 (2026-10-02): ocp-login is described by pattern, not by file
+
+*Status: accepted (2026-10-02). The owner answered: "questions: follow
+recommendations, proceed." P1-Q1: O4 keeps its category only. P1-Q2:
+`v1.3.1` is tagged.* Its plan is
+[0004-PLAN-v1-3-1-ocp-login-pattern-rewording.md](0004-PLAN-v1-3-1-ocp-login-pattern-rewording.md).
+
+**Found.** This repository is public. ocp-login is an org-internal program.
+This record, and two of its plans, describe ocp-login at file level:
+source paths, line numbers, and how one of its defects works. The same kind
+of detail was removed from go-tui-lib before its first release (go-tui-lib
+`docs/decisions/0001-MADR-scaffold-charm-tui-library.md`, amendment A2).
+
+**Decided (owner, 2026-10-02).** Re-word that detail to patterns, and leave
+published history as it is.
+
+* **Rule.** ocp-login is described by what it does, never by its files. The
+  re-worded text names no source path, line number, unexported identifier or
+  environment variable, and does not say how a defect could be exploited.
+* **What is kept:**
+  * the defect IDs O1–O6, so that every cross-reference still reads;
+  * one line each saying what the defect is;
+  * citations of ocp-login's own records by number, as go-tui-lib does.
+* **Marking.** Each re-worded passage is marked
+  *(Re-worded to patterns by amendment P1.)* No decision, option or
+  consequence changes, only evidence.
+* **O4.** Its row says only that it is a credential-handling defect, for
+  ocp-login's maintainers to fix (owner question P1-Q1). *(The draft said
+  "reported to"; that was changed on 2026-10-02 before commit, because
+  no report is recorded.)*
+  `selfupdate`'s own rule (§3, "A source sends a credential only to the
+  origin it was requested for, and only over HTTPS") already states the
+  requirement in general terms.
+* **History stays.** The detail remains in `v1.0.1` to `v1.3.0` and in the
+  module proxy's copies of them. Rewriting history was considered and
+  rejected:
+  * the proxy serves each published version's original archive, so a
+    rewrite cannot remove the text;
+  * moved tags would no longer match the checksum database, which breaks
+    any consumer that fetches the module directly.
+* **Release.** The re-wording ships as `v1.3.1`, whose code is identical to
+  `v1.3.0` (owner question P1-Q2). The newest module version, and the
+  README that pkg.go.dev shows, are then clean.
+
+**Owner questions for P1.**
+
+* **P1-Q1. How much of O4 to keep.** Recommended: its category only, "a
+  credential-handling defect, reported to ocp-login's maintainers". The
+  alternative is a one-line description of the defect. That still tells a
+  reader of a public repository what to look for in an internal program.
+* **P1-Q2. A `v1.3.1` tag.** Recommended: yes, so that `@latest` resolves
+  to clean docs. The alternative is no tag: HEAD is clean on GitHub, and
+  the newest module version still carries the detail until the next
+  release.
 
 ## More Information
 
