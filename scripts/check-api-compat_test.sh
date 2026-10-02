@@ -77,6 +77,29 @@ fi
 git -C "$CLONE" checkout --quiet -- .
 cp "$ROOT/scripts/check-api-compat.sh" "$CLONE/scripts/check-api-compat.sh"
 
+# 3b. A base released under another module path is compared by its API
+#    (docs/decisions/0009-MADR-rename-to-go-selfupdate-lib.md §4). The
+#    clone's tree moves to a new path; its unchanged API must compare clean,
+#    and a planted change must still be refused.
+OLD_MODULE="$(cd "$CLONE" && GOWORK=off go list -m)"
+export OLD_MODULE
+(cd "$CLONE" && go mod edit -module example.com/renamed &&
+	find . -name '*.go' -not -path './.git/*' -exec perl -pi -e 's/\Q$ENV{OLD_MODULE}\E(?=["\/])/example.com\/renamed/g' {} +)
+check "a base under another path compares by API" 0 "$(run_gate "$BASE")"
+perl -pi -e 's/DefaultLockTimeout time.Duration = 5 \* time.Second/DefaultLockTimeout time.Duration = 6 * time.Second/' \
+	"$CLONE/selfupdate/types.go"
+check "a change under another path is refused" 1 "$(run_gate "$BASE")"
+if grep -q 'DefaultLockTimeout: value changed' "$WORK/out"; then
+	echo "  ok   the report names the change"
+	PASS=$((PASS + 1))
+else
+	echo "  FAIL the report does not name the change:"
+	sed 's/^/       /' "$WORK/out"
+	FAIL=$((FAIL + 1))
+fi
+git -C "$CLONE" checkout --quiet -- .
+cp "$ROOT/scripts/check-api-compat.sh" "$CLONE/scripts/check-api-compat.sh"
+
 # 4. A base that is not a commit is a usage error, not a pass.
 check "an unknown base is an error" 2 "$(run_gate no-such-revision)"
 

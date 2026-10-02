@@ -14,10 +14,16 @@
 set -euo pipefail
 
 APIDIFF="${APIDIFF:-golang.org/x/exp/cmd/apidiff@v0.0.0-20260908205506-85c1c2202aba}"
-MODULE="github.com/maccavelli/go-core-lib"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# The module path is read, not written in: a base released under an earlier
+# path is compared under this one (docs/decisions/0009-MADR-rename-to-go-selfupdate-lib.md §4).
+if ! MODULE="$(GOWORK=off go list -m)"; then
+	echo "check-api-compat: cannot read the module path" >&2
+	exit 2
+fi
 
 if [ $# -gt 1 ]; then
 	echo "usage: check-api-compat.sh [BASE]" >&2
@@ -46,6 +52,21 @@ trap cleanup EXIT
 if ! git worktree add --detach --quiet "$WORK/base" "$BASE"; then
 	echo "check-api-compat: cannot check out $BASE" >&2
 	exit 2
+fi
+# apidiff qualifies types by their full import path, so a base under another
+# path would report every type it touches as changed. Rewriting the base's
+# path in its scratch worktree compares the API alone.
+if ! BASE_MODULE="$(cd "$WORK/base" && GOWORK=off go list -m)"; then
+	echo "check-api-compat: cannot read the module path of $BASE" >&2
+	exit 2
+fi
+if [ "$BASE_MODULE" != "$MODULE" ]; then
+	echo "check-api-compat: $BASE declares $BASE_MODULE; comparing it as $MODULE" >&2
+	if ! (cd "$WORK/base" && export BASE_MODULE MODULE && go mod edit -module "$MODULE" &&
+		find . -name '*.go' -exec perl -pi -e 's/\Q$ENV{BASE_MODULE}\E(?=["\/])/$ENV{MODULE}/g' {} +); then
+		echo "check-api-compat: cannot rewrite the module path of $BASE" >&2
+		exit 2
+	fi
 fi
 if ! (cd "$WORK/base" && go run "$APIDIFF" -m -w "$WORK/base.api" "$MODULE"); then
 	echo "check-api-compat: apidiff could not write the export data of $BASE" >&2

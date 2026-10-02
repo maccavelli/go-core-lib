@@ -313,5 +313,70 @@ The owner approved the PLAN ("approved, commit to main"). The MADR is
 | a scratch consumer importing `buildinfo` and `selfupdate` through `replace` | builds, rc 0 |
 | Windows test host | `go vet` and `go test -race` rc 0; every script test rc 0 |
 
-**Next:** step 3 is the owner's: push, tag `v1.4.1` on this commit, and push
-the tag.
+Committed as `58411f1`.
+
+### Step 3: `v1.4.1` (2026-10-02)
+
+* **The owner** pushed `58411f1`, and tagged and pushed `v1.4.1` (annotated)
+  on it.
+* **CI.** Run `37053181466` on `main` and run `37058909932` on the tag both
+  concluded `success`, on `ubuntu-24.04`, `macos-15` and `windows-2025`.
+* **Through `proxy.golang.org`**, from a scratch module:
+
+  ```text
+  $ go list -m github.com/maccavelli/go-core-lib@v1.4.1
+  github.com/maccavelli/go-core-lib v1.4.1
+  $ go list -m github.com/maccavelli/go-core-lib@latest
+  github.com/maccavelli/go-core-lib v1.4.1
+  $ go get github.com/maccavelli/go-core-lib@v1.4.0
+  go: module github.com/maccavelli/go-core-lib is deprecated: renamed to github.com/maccavelli/go-selfupdate-lib. Use that module.
+  $ go list -m -u all
+  github.com/maccavelli/go-core-lib v1.4.0 [v1.4.1] (deprecated)
+  ```
+
+  `go list -m -u -json` carries `Deprecated`: `renamed to
+  github.com/maccavelli/go-selfupdate-lib. Use that module.`
+* **The non-docs diff from `v1.4.0`** is `.golangci.yml` (0008's rules, 70
+  lines) and `go.mod`'s one comment line. No `.go` file or `go.sum` line
+  changes.
+
+Every step 3 check holds, so the rename may go ahead.
+
+### Step 4: the rename (2026-10-02)
+
+* **The owner** renamed the repository on GitHub.
+* **Checked, read-only:**
+  * `gh repo view maccavelli/go-selfupdate-lib`: public, default branch
+    `main`;
+  * `git ls-remote` gives `HEAD` `58411f1f7b00` at the new URL and at the
+    old one, through GitHub's redirect, which matches local `main`;
+  * the tags at the new URL are `v1.0.0`, `v1.0.1`, `v1.1.0`, `v1.2.0`,
+    `v1.3.0`, `v1.3.1`, `v1.4.0` and `v1.4.1`;
+  * the local `origin` still names the old URL, as planned. Step 8
+    changes it.
+
+### Step 5: the API gate across a path change (2026-10-02)
+
+* **`scripts/check-api-compat.sh`:**
+  * `MODULE` is read with `GOWORK=off go list -m`, no longer written in;
+  * the base's path is read the same way in its worktree;
+  * when the two differ, `go mod edit -module` sets the base's path, and
+    `perl` replaces the old path with the new in every `.go` file. The
+    replacement is exact, and only where the path is followed by `"` or
+    `/`;
+  * the message `… declares <old>; comparing it as <new>` goes to stderr.
+* **`scripts/check-api-compat_test.sh`** gains case 3b. The clone's tree
+  moves to `example.com/renamed`, and the gate against `BASE` must exit 0.
+  A planted `DefaultLockTimeout` change must then exit 1, and the report
+  must name it. That is three new checks.
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| shellcheck on both scripts | rc 0 |
+| `make apicheck` (same path) | `compatible with v1.4.1` |
+| `scripts/check-api-compat_test.sh` | `9 passed, 0 failed` |
+| the same, on a scratch clone with the rewrite disabled (`if false`) | `6 passed, 3 failed`: `a base under another path compares by API: want exit 0, got 2`, and the two following checks |
+
+The PLAN asked for 7 checks or more; the test has 9.
