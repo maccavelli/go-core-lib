@@ -668,12 +668,41 @@ func New(s *selfupdate.Stream, opts ...Option) Model
 
 ### 5. Phase 3: the canonical command surface
 
+**Amended 2026-10-02 by [0004-PLAN-v1-4-0-command-surface.md](0004-PLAN-v1-4-0-command-surface.md).**
+
+* **The PLAN's shapes supersede the sketches** below where they differ, as
+  for §3 and §4.
+* **The amendments.** The owner approved nine with the PLAN. Each is marked
+  where it applies:
+  * **F1.** A release identity needs the stamped kind to be exactly
+    `release`, and the version to be `vMAJOR.MINOR.PATCH` or the 0005
+    prerelease form `vMAJOR.MINOR.PATCH-NAME.N`. Anything else is local,
+    and `Info.Reason` says why a `release` stamp was refused.
+  * **F2.** `buildinfo` does not import `selfupdate`. It has its own
+    `Kind`, which `cli` maps. It exports `VersionVar`, `KindVar` and
+    `LDFlags(version)`.
+  * **F3.** `Flags` gains `Channel`, bound to `--channel` (0005-MADR §6).
+  * **F4.** `(*Flags).Parse(args, stderr)`, and
+    `Command(ctx, args, product, id, newUpdater, o) int`, which builds the
+    updater only after parsing and the request succeed.
+  * **F5.** `HelpText` is the flag list and the exit-status paragraph.
+    `Help(prog)` adds the usage line.
+  * **F6.** `Options{Stdout, Stderr, Stdin, Interactive, JSON, Confirmer,
+    Timeout, Signals}`. `StdioOptions()` uses `golang.org/x/term`, which is
+    already required.
+  * **F7.** `Exit`'s line is `update failed: <message>`, on one line. It
+    prints nothing for `ErrUpdateAvailable`.
+  * **F8.** Under `--json` the last line is
+    `{"kind":"result","exit_code":N,"error":"…","result":{…}}`, exactly
+    once, on every path past flag parsing. `--help` writes text only.
+  * **F9.** Usage errors exit 1; `-h` and `--help` exit 0.
+
 **`buildinfo`** (top-level package, standard library).
 
 * The library owns the stamp variables, so every program uses one ldflags
   string: `-X github.com/maccavelli/go-core-lib/buildinfo.version=…` and
   `….kind=release`.
-* `Identity()` returns an `Info` whose kind is `ReleaseBuild` only when
+* *(Amended F1, F2.)* `Identity()` returns an `Info` whose kind is `ReleaseBuild` only when
   the stamped kind is `release` and the version is a strict tag.
 * It falls back to `debug.ReadBuildInfo` for display (module version,
   `vcs.revision`, `vcs.modified`), never to decide the release kind.
@@ -690,25 +719,25 @@ type FlagSet interface {
 // *flag.FlagSet and pflag's *FlagSet both satisfy FlagSet.
 type Flags struct {
     Check, Yes, Force, DryRun, JSON bool
-    Version                         string
+    Version                         string // amended F3: and Channel
 }
 func (f *Flags) Bind(fs FlagSet) // -y through an optional BoolVarP interface
 func (f Flags) Request(product string, id buildinfo.Info) (Request, error) // rejects contradictions
-func Run(ctx context.Context, u *Updater, req Request, o Options) (Result, error) // signal ctx, 15 m timeout, streams
-func Exit(stderr io.Writer, res Result, err error) int                      // one canonical error line
-const HelpText = "…"
+func Run(ctx context.Context, u *Updater, req Request, o Options) (Result, error) // signal ctx, 15 m timeout, streams; amended F4, F6
+func Exit(stderr io.Writer, res Result, err error) int                      // one canonical error line; amended F7
+const HelpText = "…" // amended F5: and Help(prog)
 ```
 
 The canonical protocol is:
 
 * `<prog> update [--check] [--yes|-y] [--force] [--dry-run] [--json] [--version vX.Y.Z]`,
   with no positional arguments.
-* Exit codes: 0 when up to date, declined or applied; 10 when `--check`
+* *(Amended F9.)* Exit codes: 0 when up to date, declined or applied; 10 when `--check`
   finds a target; 1 otherwise.
 * **Stdout carries machine-readable protocol output and nothing else**
   (owner decision, 2026-09-30):
   * JSON-RPC, for a program serving on stdio;
-  * under `--json`, a JSONL stream: one object per line for each event,
+  * *(amended F8)* under `--json`, a JSONL stream: one object per line for each event,
     then a final object with `"kind":"result"` that carries the
     `ResultDocument`.
 

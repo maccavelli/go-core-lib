@@ -13,8 +13,8 @@ workflow that programs using `selfupdate` publish their releases through.
 
 The module requires Go 1.27.1 and three modules: `golang.org/x/mod v0.40.0`,
 `golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`. Its current
-release is `v1.2.0`, an annotated tag on commit
-`cfc95c883220b013c21705e1ebe3a268bdd63b56`.
+release is `v1.3.1`, an annotated tag on commit
+`351bd6a5ffbd4b352cacc5234f4a8c504c3c1b69`.
 
 ## Tree
 

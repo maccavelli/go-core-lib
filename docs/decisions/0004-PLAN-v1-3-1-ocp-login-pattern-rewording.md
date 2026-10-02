@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-02
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
@@ -220,5 +220,20 @@ fact about `selfupdate`, and every defect ID.
 
 ### Close-out
 
-Waiting for the owner's push and the `v1.3.1` tag, and for CI on both. This
-PLAN becomes `complete` then.
+The owner pushed both commits and tagged `v1.3.1`. Every acceptance
+criterion in Verification holds, so this PLAN is `complete`.
+
+### Release (2026-10-02)
+
+* **Tag.** The owner tagged `v1.3.1` on `351bd6a`.
+* **CI.** Run `37017346855` on `main` and run `37018271601` on the tag both
+  concluded `success`.
+* **The proxy.** `GOPROXY=https://proxy.golang.org go list -m
+  github.com/maccavelli/go-core-lib@latest` printed:
+
+  ```text
+  github.com/maccavelli/go-core-lib v1.3.1
+  ```
+
+  Recorded by Step 1 of
+  [0004-PLAN-v1-4-0-command-surface.md](0004-PLAN-v1-4-0-command-surface.md).
