@@ -256,3 +256,21 @@ Committed as `d7cd32f`.
 | `make lint` | 0 issues for `GOOS=linux`, `darwin` and `windows` |
 | `make pre-add-check` on one file of each package | `4 file(s) clean` |
 | `go mod tidy -diff` | rc 0; `go.mod` unchanged |
+
+### Step 3: documentation (2026-10-02)
+
+* **`AGENTS.md`, Dependencies,** names Charm beside the three banned
+  modules. It says that `depguard` enforces the rules, lists the six rules,
+  and says that a record adding a module or a package amends them in the
+  same commit, with new rule names sorting after `banned`.
+* **`docs/architecture.md`, Tooling,** gains "Import rules": the six rules
+  and the MADR.
+* **Also fixed in the same section.** It said `make fuzz` "refuses fewer
+  than four" targets. Since `0004-PLAN-v1-4-0-command-surface.md` Step 3
+  the `Makefile` passes `-m 5`, so it now says five. That plan's Step 8
+  updated the Go-code table but missed this line.
+* markdownlint-cli2: 0 issues on both files. The link resolver: no broken
+  link.
+
+**Not yet met:** CI on the pushed commits, which waits for the owner's push.
+This PLAN stays `in-progress` until then.

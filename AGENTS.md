@@ -16,7 +16,22 @@ No module may be required without a MADR in this repository that names it.
 Never import `github.com/maccavelli/mcplib`, the MCP go-sdk
 (`github.com/modelcontextprotocol/go-sdk`) or
 `github.com/maccavelli/go-llmprovider-sdk`: this module sits below them in the
-dependency graph, and callers use it to avoid them.
+dependency graph, and callers use it to avoid them. Charm
+(`charm.land/…`, `github.com/charmbracelet/…`) stays out too; it lives in
+go-tui-lib.
+
+`depguard` in `.golangci.yml` enforces these rules, so `make lint`, the
+pre-add check and CI fail on a breach
+(`docs/decisions/0008-MADR-enforce-import-rules-with-depguard.md`):
+
+- `banned` refuses the modules above, in every file, with the reason;
+- `module` allows only the standard library, this module and the
+  required modules, in every file;
+- `buildinfo`, `selfupdate`, `selfupdate-cli` and `selfupdatetest` allow
+  each package, outside its tests, only the imports its record names.
+
+A record that adds a module or a package amends those rules in the same
+commit. A new rule's name must sort after `banned`.
 
 `go.mod` and `go.sum` change with the code that needs them: a requirement is
 added in the commit that adds its first import, and removed in the commit that

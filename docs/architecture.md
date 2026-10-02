@@ -206,7 +206,7 @@ interpolated into shell.
 - **`make` targets:** `test`, `test-sum`, `fmt`, `vet`, `lint`, `tidy`,
   `vuln`, `apicheck`, `fuzz`, `pre-add-check`, `help`.
 - **`make fuzz`** runs `scripts/go-fuzz.sh` on `selfupdate`. It finds
-  every fuzz target, refuses fewer than four, and fuzzes each for
+  every fuzz target, refuses fewer than five, and fuzzes each for
   `FUZZTIME` (default 20s), with minimization capped at 5 s. A failing
   input stays in `selfupdate/testdata/fuzz/<Name>/`, where it is a seed from
   then on.
@@ -237,6 +237,14 @@ interpolated into shell.
   `BASE=`), and any incompatible change fails it.
 - **`make lint`** runs `golangci-lint run -c .golangci.yml ./...` three
   times: `GOOS=linux`, `darwin` and `windows`, each with `CGO_ENABLED=0`.
+- **Import rules** are six `depguard` rules in `.golangci.yml`
+  ([0008-MADR](decisions/0008-MADR-enforce-import-rules-with-depguard.md)):
+  - `banned`: mcplib, the MCP go-sdk, go-llmprovider-sdk and Charm, in
+    every file;
+  - `module`: only the standard library, this module, `x/mod`, `x/sys`
+    and `x/term`, in every file;
+  - `buildinfo`, `selfupdate`, `selfupdate-cli` and `selfupdatetest`: each
+    package's own allowed imports, outside its tests.
 - **`scripts/go-precheck.sh`** runs `gofmt` on the given Go files, the same
   three golangci-lint runs, `go vet` and `go test` on their packages, and
   `govulncheck ./...`. `make pre-add-check` runs it, and so does the
