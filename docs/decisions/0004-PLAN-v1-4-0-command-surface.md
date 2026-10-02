@@ -742,3 +742,47 @@ func Command(ctx context.Context, args []string, product string, id buildinfo.In
   `351bd6a`.
 * **`docs/README.md`.** The `v1.3.1` PLAN is `complete`, and this PLAN is
   `in-progress`.
+
+### Step 2: `buildinfo` (2026-10-02)
+
+**What changed.**
+
+* **`buildinfo/buildinfo.go`** (new) has the PLAN's API, in Go:
+  * the stamp variables, `VersionVar` and `KindVar`;
+  * `Kind` and `Info`, `Identity`, `Info.Current`, `Info.String` and
+    `LDFlags`.
+
+  It imports only `regexp`, `runtime/debug`, `strconv` and `strings`.
+  `readBuildInfo` is a package variable, so a test can supply build
+  information.
+* **`LDFlags`' parameter is named `tag`,** not `version` as the PLAN's
+  sketch has it, so that it does not shadow the package's `version`
+  variable. The signature is otherwise as planned.
+* **`buildinfo/buildinfo_test.go`** has `TestIdentityKinds` (19 cases),
+  `TestIdentityIgnoresModuleVersion`, `TestInfoCurrent`, `TestKindString`,
+  `TestInfoString` and `TestLDFlags`.
+* **`buildinfo/stamp_test.go`** has `TestStampedBinary`. It builds three
+  binaries with `GOFLAGS=-mod=mod GOPROXY=off GOWORK=off`: release,
+  unstamped, and a `release` stamp on `v1.2`. It runs each one.
+
+**Mutation proofs** (`mut.py`, on a scratch copy; each baseline passed first):
+
+| ID | Mutation | Result |
+| :--- | :--- | :--- |
+| A1 | the prerelease group is dropped from the tag pattern | killed: `TestIdentityKinds` |
+| A2 | the tag check is bypassed | killed: `TestIdentityKinds` |
+| A3 | `kind` is compared case-insensitively | killed: `TestIdentityKinds` |
+| A4 | an unstamped binary with a module version becomes release | killed: `TestIdentityIgnoresModuleVersion` |
+| A5 | the linker variable is renamed (`stampedVersion`) | killed: `TestStampedBinary` |
+| A5b | `VersionVar` names `buildinfo.Version` | killed: `TestStampedBinary` |
+| A6 | `Current` prefers the module version | killed: `TestInfoCurrent` |
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `make pre-add-check` on the three files | `3 file(s) clean (gofmt, golangci-lint, go vet, go test, govulncheck)` |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go test -race -count=1 ./...` | rc 0 |
+| `go mod tidy -diff` | rc 0; `go.mod` unchanged |
+| Windows test host | `go vet` rc 0; `go test -race` rc 0, with `buildinfo` 3.3 s, so `TestStampedBinary` built its `.exe` binaries; the script tests rc 0 |
