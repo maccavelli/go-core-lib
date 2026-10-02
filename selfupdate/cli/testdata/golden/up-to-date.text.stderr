@@ -1,0 +1,4 @@
+selfupdate: resolving-target product=demo current=v1.0.0
+selfupdate: fetching-release product=demo current=v1.0.0
+selfupdate: selected product=demo current=v1.0.0 target=v1.0.0 asset={{asset}}
+demo: up to date (v1.0.0)

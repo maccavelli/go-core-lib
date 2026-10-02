@@ -1,0 +1,4 @@
+selfupdate: resolving-target product=demo current=v1.0.0
+selfupdate: fetching-release product=demo current=v1.0.0
+selfupdate: failed product=demo current=v1.0.0 error
+update failed: selfupdate: demo: fixture: source unavailable

@@ -1,0 +1,5 @@
+selfupdate: resolving-target product=demo current=v1.0.0
+selfupdate: fetching-release product=demo current=v1.0.0
+selfupdate: selected product=demo current=v1.0.0 target=v1.1.0 asset={{asset}}
+selfupdate: upgrade demo from v1.0.0 to v1.1.0? [y/N] selfupdate: declined product=demo current=v1.0.0 target=v1.1.0 asset={{asset}}
+demo: update declined

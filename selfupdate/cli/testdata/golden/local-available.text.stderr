@@ -1,0 +1,4 @@
+selfupdate: resolving-target product=demo current=dev
+selfupdate: fetching-release product=demo current=dev
+selfupdate: selected product=demo current=dev target=v1.1.0 asset={{asset}} local build: apply requires --force
+demo: update available: dev -> v1.1.0

@@ -84,17 +84,27 @@ func release(product, tag string) selfupdatetest.ReleaseSpec {
 // newUpdater builds an Updater over src that may replace tg.
 func newUpdater(t *testing.T, src selfupdate.ReleaseSource, tg target) *selfupdate.Updater {
 	t.Helper()
-	assets, err := selfupdate.NewExactAssetSelector([]selfupdate.Platform{here})
+	u, err := buildUpdater(src, tg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return u
+}
+
+// buildUpdater is newUpdater for code with no *testing.T, such as a helper
+// process.
+func buildUpdater(src selfupdate.ReleaseSource, tg target) (*selfupdate.Updater, error) {
+	assets, err := selfupdate.NewExactAssetSelector([]selfupdate.Platform{here})
+	if err != nil {
+		return nil, err
 	}
 	inst, err := selfupdate.NewStandaloneInstaller(selfupdate.InstallOptions{
 		TargetPolicy: selfupdate.TargetPolicy{ExecutablePath: tg.path, AllowedRoots: []string{filepath.Dir(tg.path)}},
 	})
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	u, err := selfupdate.New(selfupdate.Config{
+	return selfupdate.New(selfupdate.Config{
 		Source:    src,
 		Versions:  selfupdate.NewStrictVersionPolicy(),
 		Assets:    assets,
@@ -103,8 +113,4 @@ func newUpdater(t *testing.T, src selfupdate.ReleaseSource, tg target) *selfupda
 		Confirmer: selfupdate.NonInteractiveConfirmer(),
 		Limits:    selfupdate.DefaultLimits(),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return u
 }

@@ -917,3 +917,81 @@ func Command(ctx context.Context, args []string, product string, id buildinfo.In
 | `make apicheck` | `compatible with v1.3.1` |
 | `go mod tidy -diff` | rc 0 |
 | Windows test host | the first run, before the `errcheck` fix, passed; on the final code `go vet` rc 0, `go test -race` rc 0 (`selfupdate/cli` 1.3 s), the script tests rc 0 |
+
+### Step 5: `cli` run and exit (2026-10-02)
+
+**What changed.**
+
+* **`selfupdate/cli/run.go`** (new):
+  * `Options`, `DefaultTimeout`, `StdioOptions`, `Run`, `Exit` and
+    `Summary`;
+  * the result object (`resultLine`, written by `writeResult` in one
+    `Write`);
+  * the `notifyContext` seam.
+
+  `Run` refuses its four bad options with errors that start `cli:`. A
+  failed write of the last line is joined into the run's error.
+* **`Summary`** checks `OperationNone` before `Declined`, `DryRun` and
+  `Applied`. A dry run or an apply that finds nothing to do is then
+  reported as up to date. The PLAN's table maps outcomes to lines without
+  ordering them, and this order matches it.
+* **The result object**, on a run that failed before selection (the
+  `failed` and `contradiction` scenarios), carries the empty
+  `ResultDocument` that `Run` returned. That is what amendment F8
+  specifies: `result` is the `ResultDocument`.
+* **`selfupdate/cli/run_test.go`** (new):
+  * the nine scenarios, each run through `Run` and then `Exit` as a
+    program would;
+  * `TestGolden`, `TestStdoutEmptyWithoutJSON`, `TestJSONStream` and
+    `TestConfirmation`;
+  * `TestSignalsWired`, `TestTimeout` and `TestExit`;
+  * `TestOptionsRefused`, which is not in the PLAN, for `Run`'s four
+    option errors;
+  * `TestNoStdoutOutsideStdio`.
+* **`selfupdate/cli/signal_unix_test.go`** (new) has `TestSignalCancels`.
+  It is under a `unix` build constraint, which is how it is left out on
+  Windows, with the reason in its doc comment. The child waits in
+  `OpenAsset` and prints `READY`; the parent reads to that line and sends
+  `SIGTERM`; the child exits 1 with `update failed:` and `context
+  canceled`, and the target is byte-identical.
+* **`helpers_test.go`** gains `buildUpdater`, the helper with no
+  `*testing.T`, for the child process.
+* **Golden files.** 36 were written with `-update`, and every one was read
+  before this commit: `<scenario>.{text.stderr,json.stdout,json.stderr,code}`
+  for the nine scenarios.
+  * In `declined`, the prompt and the `declined` event share a line,
+    because piped input is not echoed.
+  * No golden holds a path, a port or a time. The only substitution is
+    `{{asset}}`.
+* **A test that was wrong at first.** `TestSignalsWired`'s no-signal case
+  ran with `--yes`. Nothing cancelled it, so the update installed and the
+  target-unchanged check failed. The case now runs `--check` and expects
+  `ErrUpdateAvailable`. The code was not changed.
+
+**Mutation proofs** (the runner now also reports a mutation that does not
+compile as invalid, rather than as killed):
+
+| ID | Mutation | Result |
+| :--- | :--- | :--- |
+| A12 | the summary is also written to stdout | killed: `TestStdoutEmptyWithoutJSON` |
+| A13 | the result object is written twice on error | killed: `TestJSONStream` |
+| A14 | `exit_code` is renamed `exitCode` | killed: `TestGolden` |
+| A15 | the up-to-date line says "update available" | killed: `TestGolden` |
+| A16 | the prompt goes to stdout when there is one | killed: `TestStdoutEmptyWithoutJSON` |
+| A17 | `SIGTERM` is dropped from the default signals | killed: `TestSignalsWired` |
+| A18 | a zero timeout means no timeout | killed: `TestTimeout` |
+| A19 | `Exit` prints a line for `ErrUpdateAvailable` | killed: `TestExit` |
+| A19b | `Exit` writes to `os.Stderr`, not its argument | killed: `TestExit` |
+| A19c | `Run` drops `WithReporter`, so the Updater's own reporter is used | killed: `TestGolden` |
+| A22 | `Run` prints a banner with `println` | killed: `TestNoStdoutOutsideStdio` |
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `make pre-add-check` on the four Go files | `4 file(s) clean` |
+| `go test -race -shuffle=on ./selfupdate/cli` | rc 0 |
+| `go test -race -count=1 ./...` | rc 0 |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go mod tidy -diff` | rc 0; `go.mod` unchanged |
+| Windows test host | `go vet` rc 0; `go test -race` rc 0, `selfupdate/cli` 1.5 s with every golden byte-identical; the script tests rc 0 |
