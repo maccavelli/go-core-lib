@@ -995,3 +995,52 @@ compile as invalid, rather than as killed):
 | `make apicheck` | `compatible with v1.3.1` |
 | `go mod tidy -diff` | rc 0; `go.mod` unchanged |
 | Windows test host | `go vet` rc 0; `go test -race` rc 0, `selfupdate/cli` 1.5 s with every golden byte-identical; the script tests rc 0 |
+
+### Step 6: `cli.Command` and examples (2026-10-02)
+
+**What changed.**
+
+* **`selfupdate/cli/command.go`** (new) has `Command` and its `report`,
+  as planned. It also refuses two inputs the PLAN did not name:
+  * a nil `Options.Stderr` returns 1 at once, because there is nowhere to
+    report;
+  * a nil `newUpdater` is reported as `cli: newUpdater is nil`.
+* **`selfupdate/cli/command_test.go`** (new) has:
+  * `TestCommandGolden`: every scenario, as real arguments;
+  * `TestCommandLazyUpdater`, `TestCommandExitCodes` and
+    `TestCommandJSONEarlyError`;
+  * `TestCommandOverridesJSON`, for the PLAN's "a caller's own value is
+    overwritten".
+* **`selfupdate/cli/example_test.go`** (new) has `ExampleCommand`,
+  `ExampleRun`, `ExampleExit` and `ExampleFlags_Bind`, all offline. Each
+  prints only lines that are the same on every OS.
+* **Goldens.**
+  * `TestCommandGolden -update` rewrote every scenario file from
+    `Command`'s output, and `git status` then showed no tracked golden
+    changed. So `Command` gives Step 5's goldens byte for byte for every
+    scenario but `contradiction`.
+  * The four new files, `contradiction.command.{text.stderr,json.stdout,json.stderr,code}`,
+    were read. They hold one refusal in `Request`'s words, exit 1, and a
+    result object carrying `product` `demo` and `current_version`
+    `v1.0.0`.
+
+**Mutation proofs:**
+
+| ID | Mutation | Result |
+| :--- | :--- | :--- |
+| A20 | the updater is built before parsing | killed: `TestCommandLazyUpdater` |
+| A21 | a usage error returns 2 | killed: `TestCommandExitCodes` |
+| A21b | `-h` writes `HelpText` without the usage line | killed: `TestCommandExitCodes` |
+| J1 | `Command` keeps the caller's `JSON` | killed: `TestCommandOverridesJSON` |
+| J2 | an early error writes no result object under `--json` | killed: `TestCommandJSONEarlyError` |
+| A25 | an example's expected output changes | killed: `ExampleRun` |
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `make pre-add-check` on the three files | `3 file(s) clean` |
+| `go test -race -count=1 ./...`, `go test -shuffle=on -count=2 ./...` | rc 0 each |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go mod tidy -diff` | rc 0 |
+| Windows test host | `go vet` rc 0; `go test -race` rc 0 (`selfupdate/cli` 1.6 s, the examples and goldens included); the script tests rc 0 |
