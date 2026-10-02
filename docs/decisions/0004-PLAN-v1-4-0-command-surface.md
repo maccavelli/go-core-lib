@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-02
 associated-madr: "0004-MADR-evolve-selfupdate-api-and-tui-support.md"
 ---
@@ -1286,3 +1286,18 @@ Every change is an addition; `make apicheck` reports none incompatible with
 
   Each exited 0. `make vuln` and the workflow-contract scripts had already
   passed in Step 8, on this host and on the Windows test host.
+
+### Release (2026-10-02)
+
+* **The fix.** The owner committed D3's fix as `4d7b053`.
+* **CI on `main`.** Run `37039215899` on `4d7b053` concluded `success` on all
+  three operating systems, with `check-api-compat_test.sh` included.
+* **The tag.** The owner tagged `v1.4.0`, an annotated tag, on `4d7b053`.
+  Run `37039904485` on the tag concluded `success` on `ubuntu-24.04`,
+  `macos-15` and `windows-2025`.
+* **The proxy.** `GOPROXY=https://proxy.golang.org go list -m
+  github.com/maccavelli/go-core-lib@latest` printed
+  `github.com/maccavelli/go-core-lib v1.4.0`.
+
+Every item under Verification now holds, CI on the pushed tree included.
+This PLAN is `complete`.

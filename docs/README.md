@@ -17,7 +17,7 @@
 | 0004 | PLAN | [Implement harness item H2: CI fuzzing and the manifest differential](decisions/0004-PLAN-h2-fuzzing-and-manifest-differential.md) | complete |
 | 0004 | PLAN | [Implement harness item H4: an end-to-end update of a running copy](decisions/0004-PLAN-h4-running-copy-end-to-end.md) | complete |
 | 0004 | PLAN | [Re-word ocp-login to patterns (`v1.3.1`)](decisions/0004-PLAN-v1-3-1-ocp-login-pattern-rewording.md) | complete |
-| 0004 | PLAN | [Implement Phase 3: the canonical command surface (`v1.4.0`)](decisions/0004-PLAN-v1-4-0-command-surface.md) | in-progress |
+| 0004 | PLAN | [Implement Phase 3: the canonical command surface (`v1.4.0`)](decisions/0004-PLAN-v1-4-0-command-surface.md) | complete |
 | 0004 | REPORT | [Release signing for `selfupdate`: research and a design kept for later](reports/0004-REPORT-release-signing-research.md) | — |
 | 0005 | MADR | [Offer opt-in prerelease channels without weakening the stable path](decisions/0005-MADR-opt-in-prerelease-channels.md) | accepted |
 | 0005 | PLAN | [Implement opt-in prerelease channels (`v1.3.0`)](decisions/0005-PLAN-opt-in-prerelease-channels.md) | complete |
@@ -25,6 +25,8 @@
 | 0006 | PLAN | [Implement the golangci-lint v2.14.0 adoption](decisions/0006-PLAN-adopt-golangci-lint-v2-14.md) | complete |
 | 0007 | MADR | [Adopt govulncheck v1.8.0 in CI, in the install hints, and on every development host](decisions/0007-MADR-adopt-govulncheck-v1-8.md) | accepted |
 | 0007 | PLAN | [Implement govulncheck v1.8.0 across CI, hints and hosts](decisions/0007-PLAN-adopt-govulncheck-v1-8.md) | complete |
+| 0008 | MADR | [Enforce the module's import rules with depguard: forbidden modules, a module floor, and a floor per package](decisions/0008-MADR-enforce-import-rules-with-depguard.md) | proposed |
+| 0008 | PLAN | [Implement depguard import rules](decisions/0008-PLAN-enforce-import-rules-with-depguard.md) | proposed |
 
 ## I want to…
 
