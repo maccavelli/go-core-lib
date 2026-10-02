@@ -26,7 +26,7 @@
 | 0007 | MADR | [Adopt govulncheck v1.8.0 in CI, in the install hints, and on every development host](decisions/0007-MADR-adopt-govulncheck-v1-8.md) | accepted |
 | 0007 | PLAN | [Implement govulncheck v1.8.0 across CI, hints and hosts](decisions/0007-PLAN-adopt-govulncheck-v1-8.md) | complete |
 | 0008 | MADR | [Enforce the module's import rules with depguard: forbidden modules, a module floor, and a floor per package](decisions/0008-MADR-enforce-import-rules-with-depguard.md) | accepted |
-| 0008 | PLAN | [Implement depguard import rules](decisions/0008-PLAN-enforce-import-rules-with-depguard.md) | in-progress |
+| 0008 | PLAN | [Implement depguard import rules](decisions/0008-PLAN-enforce-import-rules-with-depguard.md) | complete |
 
 ## I want to…
 

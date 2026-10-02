@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-02
 associated-madr: "0008-MADR-enforce-import-rules-with-depguard.md"
 ---
@@ -272,5 +272,8 @@ Committed as `d7cd32f`.
 * markdownlint-cli2: 0 issues on both files. The link resolver: no broken
   link.
 
-**Not yet met:** CI on the pushed commits, which waits for the owner's push.
-This PLAN stays `in-progress` until then.
+### Close-out (2026-10-02)
+
+The owner pushed Steps 1–3. CI run `37043440716` on `bb1af9c` concluded
+`success` on `ubuntu-24.04`, `macos-15` and `windows-2025`. Every item under
+Verification holds, so this PLAN is `complete`. No tag was cut (MADR Q2).
