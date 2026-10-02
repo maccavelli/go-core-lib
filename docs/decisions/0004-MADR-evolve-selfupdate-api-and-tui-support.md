@@ -1019,9 +1019,14 @@ published history as it is.
     rewrite cannot remove the text;
   * moved tags would no longer match the checksum database, which breaks
     any consumer that fetches the module directly.
-* **Release.** The re-wording ships as `v1.3.1`, whose code is identical to
-  `v1.3.0` (owner question P1-Q2). The newest module version, and the
-  README that pkg.go.dev shows, are then clean.
+* **Release.** The re-wording ships as `v1.3.1` (owner question P1-Q2).
+  Its Go code, `go.mod` and `go.sum` are identical to `v1.3.0`'s. It also
+  carries the govulncheck v1.8.0 pin of
+  [0007-MADR-adopt-govulncheck-v1-8.md](0007-MADR-adopt-govulncheck-v1-8.md),
+  which landed after `v1.3.0` and changes tooling only. *(Corrected
+  2026-10-02, before the tag: the first text said the code was identical,
+  and the PLAN's check found the tooling change.)* The newest module version,
+  and the README that pkg.go.dev shows, are then clean.
 
 **Owner questions for P1.**
 
