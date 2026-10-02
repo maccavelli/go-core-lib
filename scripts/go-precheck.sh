@@ -63,7 +63,7 @@ need() {
   command -v "$1" >/dev/null 2>&1 && return 0
   echo "go-precheck: $1 not found in PATH." >&2
   case "$1" in
-  govulncheck) echo "  install: go install golang.org/x/vuln/cmd/govulncheck@latest" >&2 ;;
+  govulncheck) echo "  install: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0" >&2 ;;
   esac
   return 1
 }

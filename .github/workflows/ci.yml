@@ -91,7 +91,7 @@ jobs:
       - name: govulncheck
         if: runner.os == 'Linux'
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           "$(go env GOPATH)/bin/govulncheck" ./...
       # Scripts, Markdown and workflows are checked as the pre-add gate and
       # the records require (0003-MADR D9).

@@ -50,7 +50,7 @@ tidy: ## Runs go mod tidy
 
 vuln: ## Runs govulncheck (opt-in; requires govulncheck on PATH/GOBIN)
 	@if [ -z "$(GOVULNCHECK)" ] || [ ! -x "$(GOVULNCHECK)" ]; then \
-		echo "govulncheck not found. Install: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
+		echo "govulncheck not found. Install: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0"; \
 		exit 1; \
 	fi
 	$(GOVULNCHECK) ./...
