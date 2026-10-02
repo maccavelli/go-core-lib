@@ -1044,3 +1044,95 @@ compile as invalid, rather than as killed):
 | `make apicheck` | `compatible with v1.3.1` |
 | `go mod tidy -diff` | rc 0 |
 | Windows test host | `go vet` rc 0; `go test -race` rc 0 (`selfupdate/cli` 1.6 s, the examples and goldens included); the script tests rc 0 |
+
+### Step 7: the migration proof (2026-10-02)
+
+**Here.**
+
+* **`selfupdate/cli/migration_test.go`** (new) has `TestMigrationFixture`.
+  It runs `up-to-date`, `available` and `failed` through `Command` with
+  product `prepare-commit-msg`, in text mode. `helpers_test.go` gains
+  `goldenIn`, the golden helper for another `testdata` directory.
+* **`selfupdate/cli/testdata/migration/`** holds nine files, written with
+  `-update` and read:
+  * stdout is empty in every scenario;
+  * the stderr files end `prepare-commit-msg: up to date (v1.0.0)`,
+    `prepare-commit-msg: update available: v1.0.0 -> v1.1.0` and
+    `update failed: selfupdate: prepare-commit-msg: fixture: source
+    unavailable`;
+  * the codes are 0, 10 and 1.
+* **`docs/guides/migrating-from-mcplib-selfupdate.md`** gains §5, "Adopt the
+  canonical update command":
+  * the copy's `update.go` in full, and its `main.go` and `Makefile` diff,
+    tabs as spaces. The `go.mod` `replace` line names a local path, so it
+    is described in words and not quoted;
+  * what a user of the program will notice;
+  * the cobra recipe, with a nil-context guard, and its two limits: no
+    `--json` result object on an early error, and cobra's usage for a
+    positional argument, because `Args` runs before `RunE`;
+  * a check list.
+
+**The scratch copy** (prepare-commit-msg at `cfada6e`, in the session's
+scratch space; nothing was committed there):
+
+* **The migration**, by two scripts:
+  * `go.mod` requires go-core-lib `v1.4.0` through a `replace` to this
+    working tree, and its `go` directive rises from `1.26.6` to `1.27.1`,
+    which go-core-lib requires;
+  * `update.go` keeps only `newUpdateUpdater`, now on
+    `selfupdate.UserAgent`, `DiscardReporter` and
+    `NonInteractiveConfirmer`, and the new `updateOptions`;
+  * in `main.go`, `update` is one call to `cli.Command`, and `version`
+    prints `buildinfo.Identity()`;
+  * the `Makefile` stamps `buildinfo`'s two variables.
+* **Two tests in the copy went with the code.** They tested `runUpdate`,
+  `RawVersion` and `RawBuildKind`, which the migration removes:
+  `update_test.go` (409 lines) and `TestRunUpdate_Flags` in
+  `main_extra2_test.go`. The PLAN did not name them. Their behaviour is now
+  covered by `cli`'s tests here, and by the copy's new
+  `migration_test.go`.
+* **`git diff --cached --stat`:**
+
+  ```text
+   Makefile            |   4 +-
+   go.mod              |  13 +-
+   main.go             |  27 +---
+   main_extra2_test.go |   8 -
+   migration_test.go   | 122 ++++++++++++++++
+   update.go           |  98 ++-----------
+   update_test.go      | 409 ----------------------------------------------------
+   7 files changed, 150 insertions(+), 531 deletions(-)
+  ```
+
+* **Results:**
+  * `go vet ./...` rc 0; `gofmt -l .` empty;
+  * `go test ./...`, offline, with the binary stamped by
+    `buildinfo.LDFlags("v1.0.0")` as a release is: every package ok;
+  * `TestMigrationByteForByte` drives the real `main()` with `update
+    --check`. Its three subtests passed, matching the fixture files byte
+    for byte with exit codes 0, 10 and 1;
+  * `TestMakefileStamps` found each `-X` name six times in `make -n
+    build-all`.
+* **The proof of the proof (A23).** The summary text lives in go-core-lib,
+  not in the copy, so "one word of a summary line is changed in the copy"
+  was done by pointing the copy's `replace` at a scratch go-core-lib whose
+  `up to date` reads `up-to-date`:
+  * that failed exactly `TestMigrationByteForByte/up-to-date`;
+  * a second planted change, a banner written to the copy's stdout,
+    failed all three subtests;
+  * the unchanged copy passed all three.
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `make pre-add-check` on the two Go files | `2 file(s) clean` |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go mod tidy -diff` | rc 0 |
+| markdownlint on the guide | first run: hard tabs in the embedded code, so tabs became spaces; then 0 issues |
+| the marker scan | first run: 1 hit, a context line in the `main.go` diff, an import of one of prepare-commit-msg's own internal packages, a public repository's path that the scan cannot tell apart. The diff was cut to one line of context; then 0 hits |
+| Windows test host | `go vet` rc 0; `go test -race` rc 0; `TestMigrationFixture`'s three cases pass |
+
+The first draft of the guide section was discarded with `git checkout --`
+on the guide, the only uncommitted change in it being that draft, before
+the section was written again.
