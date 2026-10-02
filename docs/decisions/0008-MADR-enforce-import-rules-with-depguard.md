@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-10-02
 decision-makers: go-core-lib maintainers
 consulted: depguard v2.2.1 source (the version golangci-lint v2.14.0 builds); go-tui-lib's .golangci.yml
@@ -216,6 +216,10 @@ Each is `strict`, and covers the package's own directory, `!$test`:
 * Bad, because it is the gap the owner asked to close.
 
 ## Owner questions
+
+*Answered 2026-10-02: the owner said "i committed and pushed, proceed",
+approving the PLAN. Q1 and Q2 are taken as recommended: test files get
+§1 and §2 only, and no tag is cut.*
 
 * **Q1. Package floors on test files.** Recommended: no. Tests get §1 and
   §2 only, so a test can use any package of this module. The alternative

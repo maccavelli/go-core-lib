@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-10-02
 associated-madr: "0008-MADR-enforce-import-rules-with-depguard.md"
 ---
