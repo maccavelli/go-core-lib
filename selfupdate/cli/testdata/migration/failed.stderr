@@ -1,0 +1,4 @@
+selfupdate: resolving-target product=prepare-commit-msg current=v1.0.0
+selfupdate: fetching-release product=prepare-commit-msg current=v1.0.0
+selfupdate: failed product=prepare-commit-msg current=v1.0.0 error
+update failed: selfupdate: prepare-commit-msg: fixture: source unavailable

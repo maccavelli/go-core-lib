@@ -1136,3 +1136,15 @@ scratch space; nothing was committed there):
 The first draft of the guide section was discarded with `git checkout --`
 on the guide, the only uncommitted change in it being that draft, before
 the section was written again.
+
+**Two commits for this step.** The command that was to commit Step 7
+stopped at the marker scan, before it staged anything. The retry staged only
+this record, so `69ae459` holds the record alone. The step's files follow
+in a second commit:
+
+* `migration_test.go` and `helpers_test.go`;
+* `testdata/migration/`;
+* the guide.
+
+`--amend` is kept for identifier fixes, so the split stands. Each commit
+passed the guard.

@@ -1,0 +1,4 @@
+selfupdate: resolving-target product=prepare-commit-msg current=v1.0.0
+selfupdate: fetching-release product=prepare-commit-msg current=v1.0.0
+selfupdate: selected product=prepare-commit-msg current=v1.0.0 target=v1.0.0 asset={{asset}}
+prepare-commit-msg: up to date (v1.0.0)

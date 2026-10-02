@@ -20,7 +20,13 @@ var here = selfupdate.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH}
 // -update.
 func golden(t *testing.T, name, got string) {
 	t.Helper()
-	path := filepath.Join("testdata", "golden", name)
+	goldenIn(t, "golden", name, got)
+}
+
+// goldenIn is golden for testdata/dir.
+func goldenIn(t *testing.T, dir, name, got string) {
+	t.Helper()
+	path := filepath.Join("testdata", dir, name)
 	if *update {
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
