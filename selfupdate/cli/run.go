@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // DefaultTimeout bounds a run when Options.Timeout is zero (0004-MADR §5).

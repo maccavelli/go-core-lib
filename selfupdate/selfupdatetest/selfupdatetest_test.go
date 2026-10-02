@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
-	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 )
 
 var plats = []selfupdate.Platform{{OS: "linux", Arch: "amd64"}, {OS: "darwin", Arch: "arm64"}}

@@ -6,8 +6,8 @@ import (
 	"flag"
 	"io"
 
-	"github.com/maccavelli/go-core-lib/buildinfo"
-	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // Command runs the whole update command and returns its exit status

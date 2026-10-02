@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
-	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 )
 
 // Tests for docs/decisions/0004-PLAN-v1-2-0-interaction-stream.md Step 4:

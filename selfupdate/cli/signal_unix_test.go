@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
-	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 )
 
 // signalHelperEnv names the target a re-run test binary updates.

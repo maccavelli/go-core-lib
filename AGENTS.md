@@ -4,11 +4,15 @@ Instructions for AI coding agents working in this repository. All agents read
 this file. A repository-local `CLAUDE.md` / `.claude/rules/` / `.grok/rules/` /
 `.opencode/rules.md` wins only where it is more specific than this file.
 
-`go-core-lib` is a shared Go library (`github.com/maccavelli/go-core-lib`). It
-is a library only: no packaged binary. Each capability lives in its own
-top-level directory, with the package named after the directory; there is no
-root package. Unexported helpers shared between packages live under
-`internal/`. Requires Go 1.27.1.
+`go-selfupdate-lib` is the fleet's self-update library
+(`github.com/maccavelli/go-selfupdate-lib`). It was `go-core-lib` up to `v1.4.1`
+(`docs/decisions/0009-MADR-rename-to-go-selfupdate-lib.md`). Its scope is
+self-update only: `selfupdate`, its `cli` and `selfupdatetest` subpackages,
+and `buildinfo`, which stamps the identity `selfupdate` decides on. A package
+that does not serve self-update belongs in another module. It is a library
+only: no packaged binary. Each package lives in its own top-level directory,
+named after it; there is no root package. Unexported helpers shared between
+packages live under `internal/`. Requires Go 1.27.1.
 
 ## Dependencies
 

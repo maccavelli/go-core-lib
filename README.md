@@ -1,35 +1,37 @@
-# go-core-lib
+# go-selfupdate-lib
 
-> **Renamed.** This module is now `github.com/maccavelli/go-selfupdate-lib`,
-> in the repository `maccavelli/go-selfupdate-lib`. `v1.4.1` is the last
-> release under `github.com/maccavelli/go-core-lib`; it is marked deprecated
-> in `go.mod`, so `go list -m -u` and `go get` point to the new path. New
-> releases start at `v1.5.0` under the new path
+> **Formerly `go-core-lib`.** Up to `v1.4.1` this module was
+> `github.com/maccavelli/go-core-lib`, which is now deprecated in favour of this
+> path. Releases from `v1.5.0` use this path; the earlier tags are not
+> valid versions of it
 > ([0009-MADR](docs/decisions/0009-MADR-rename-to-go-selfupdate-lib.md)).
 
-A Go library of general-purpose packages shared by the fleet's programs:
-code that is neither MCP-specific (that stays in `mcplib`) nor LLM-provider
-access (that lives in `go-llmprovider-sdk`). Each capability is its own
-package in its own top-level directory. It ships no binary, and it depends on
-none of the fleet's other libraries: only the standard library and
-`golang.org/x/mod`, `golang.org/x/sys` and `golang.org/x/term`.
+The fleet's self-update library: release discovery, exact assets, SHA-256
+integrity and locked replacement of the running binary, with the shared
+`update` command and the build stamps it reads. It ships no binary, and it
+depends on none of the fleet's other libraries: only the standard library and
+`golang.org/x/mod`, `golang.org/x/sys` and `golang.org/x/term`. Code that is
+not self-update belongs in another module.
 
-Module: `github.com/maccavelli/go-core-lib`
+Module: `github.com/maccavelli/go-selfupdate-lib`
 
 **Documentation:** [docs/](docs/README.md)
 
 ## Status
 
-The module requires Go 1.27.1. The current release is `v1.0.0` (commit
-`b36ca4494b86e52cf1b4a315554603f1c6ee3a21`):
+The module requires Go 1.27.1. The current release is `v1.5.0`, the first
+under this path:
 
 ```bash
-go get github.com/maccavelli/go-core-lib@v1.0.0
+go get github.com/maccavelli/go-selfupdate-lib@v1.5.0
 ```
 
 | Package | What it does |
 | :--- | :--- |
 | [`selfupdate`](selfupdate/) | GitHub Releases discovery, exact assets, SHA-256 integrity, locked replacement of the running binary |
+| [`selfupdate/cli`](selfupdate/cli/) | the canonical `update` command: flags, stdout for protocol output only, exit codes 0, 10 and 1 |
+| [`buildinfo`](buildinfo/) | the build stamps that say whether a binary is a release |
+| [`selfupdate/selfupdatetest`](selfupdate/selfupdatetest/) | test doubles: release fixtures, a fake source, a fake GitHub API |
 
 `selfupdate` and its release workflow come from `mcplib` `v1.6.0`, with the
 same API
@@ -73,7 +75,7 @@ loopback host. End of input at the confirmation prompt is a decline.
 
 Programs publish through the reusable workflow
 `.github/workflows/publish-selfupdate-release.yml`, pinned to the full SHA of
-a go-core-lib tag commit. It accepts only a complete staged set that matches
+a tag commit of this repository. It accepts only a complete staged set that matches
 the declared products, platforms and extras, refuses a tag that already has a
 release (drafts included), attests the files, and publishes an immutable
 release. It never `--clobber`s. It is the only supported publication path for
@@ -90,7 +92,7 @@ release:
     contents: write
     id-token: write
     attestations: write
-  uses: maccavelli/go-core-lib/.github/workflows/publish-selfupdate-release.yml@b36ca4494b86e52cf1b4a315554603f1c6ee3a21 # go-core-lib v1.0.0
+  uses: maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@58411f1f7b00b5c98391c0f94503d09e0687d078 # v1.4.1
   with:
     artifact-name: <the uploaded artifact holding the staged release>
     products-json: '["<product>"]'
@@ -109,6 +111,7 @@ release:
 | offer a beta or rc channel | [the extending guide](docs/guides/extending-selfupdate.md#offer-a-beta-channel) |
 | know why `selfupdate` moved here, and what changed on the way | [0002-MADR](docs/decisions/0002-MADR-rehome-selfupdate-from-mcplib.md) |
 | know why the repository is set up the way it is | [0001-MADR](docs/decisions/0001-MADR-scaffold-shared-go-library.md) |
+| know why it was renamed from `go-core-lib` | [0009-MADR](docs/decisions/0009-MADR-rename-to-go-selfupdate-lib.md) |
 | contribute: checks, records and commit rules | [AGENTS.md](AGENTS.md) |
 
 ## License

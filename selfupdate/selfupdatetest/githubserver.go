@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // RecordedRequest is one request either GitHubServer origin received.

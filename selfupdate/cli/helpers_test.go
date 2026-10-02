@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
-	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/golden")

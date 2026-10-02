@@ -6,8 +6,8 @@
 // A release build is linked with exactly one -ldflags string, which LDFlags
 // returns:
 //
-//	-X github.com/maccavelli/go-core-lib/buildinfo.version=v1.2.3
-//	-X github.com/maccavelli/go-core-lib/buildinfo.kind=release
+//	-X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=v1.2.3
+//	-X github.com/maccavelli/go-selfupdate-lib/buildinfo.kind=release
 //
 // Identity reports KindRelease only when the stamped kind is exactly
 // "release" and the stamped version is a release tag, vMAJOR.MINOR.PATCH or
@@ -31,9 +31,9 @@ var version, kind string
 
 const (
 	// VersionVar is the -X symbol that stamps the version.
-	VersionVar = "github.com/maccavelli/go-core-lib/buildinfo.version"
+	VersionVar = "github.com/maccavelli/go-selfupdate-lib/buildinfo.version"
 	// KindVar is the -X symbol that stamps the build kind.
-	KindVar = "github.com/maccavelli/go-core-lib/buildinfo.kind"
+	KindVar = "github.com/maccavelli/go-selfupdate-lib/buildinfo.kind"
 )
 
 // releaseKind is the only stamped kind that can make a release.

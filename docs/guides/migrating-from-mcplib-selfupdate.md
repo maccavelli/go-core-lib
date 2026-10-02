@@ -1,4 +1,4 @@
-# Migrating from `mcplib/selfupdate` to go-core-lib
+# Migrating from `mcplib/selfupdate` to go-selfupdate-lib
 
 For a program that imports `github.com/maccavelli/mcplib/selfupdate`, or that
 publishes its releases through `mcplib`'s `publish-selfupdate-release.yml`.
@@ -13,18 +13,18 @@ checklist, not the authorization.
 
 ## 1. Go 1.27.1
 
-go-core-lib requires `go 1.27.1`, so `go get` raises your `go` directive to
+go-selfupdate-lib requires `go 1.27.1`, so `go get` raises your `go` directive to
 at least that. Move it deliberately first, and run your full test suite at
 1.27.1 before changing anything else.
 
 ## 2. The Go import
 
 ```bash
-go get github.com/maccavelli/go-core-lib@v1.0.0
+go get github.com/maccavelli/go-selfupdate-lib@v1.5.0
 ```
 
 Replace every `github.com/maccavelli/mcplib/selfupdate` import with
-`github.com/maccavelli/go-core-lib/selfupdate`. No identifier or signature
+`github.com/maccavelli/go-selfupdate-lib/selfupdate`. No identifier or signature
 changes, and the package name is still `selfupdate`, so no call site
 changes. Then:
 
@@ -72,7 +72,7 @@ In the job that publishes your release, change the `uses:` line and delete
 
 ```diff
 -    uses: maccavelli/mcplib/.github/workflows/publish-selfupdate-release.yml@<mcplib SHA> # mcplib v1.x.y
-+    uses: maccavelli/go-core-lib/.github/workflows/publish-selfupdate-release.yml@b36ca4494b86e52cf1b4a315554603f1c6ee3a21 # go-core-lib v1.0.0
++    uses: maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml@58411f1f7b00b5c98391c0f94503d09e0687d078 # v1.4.1
      with:
        artifact-name: …
        products-json: …
@@ -81,10 +81,12 @@ In the job that publishes your release, change the `uses:` line and delete
 -      bridge-release: false
 ```
 
-- **Pin the full commit SHA of the `v1.0.0` tag, never the tag name.**
+- **Pin the full commit SHA of a release tag, never the tag name.** The
+  workflow is unchanged from `v1.3.0` to `v1.4.1`; the example pins
+  `v1.4.1`.
   Tags are annotated, so the tag ref names a tag object, not the commit
   `uses:` needs. Resolve the commit with the peeled ref:
-  `git ls-remote https://github.com/maccavelli/go-core-lib 'refs/tags/v1.0.0^{}'`.
+  `git ls-remote https://github.com/maccavelli/go-selfupdate-lib 'refs/tags/v1.4.1^{}'`.
 - **`bridge-release` must go,** even when it is `false`. The workflow no
   longer declares it, and GitHub rejects an input the called workflow does
   not define. It only ever permitted `magic-cli-remote` `v0.16.0`, which is
@@ -116,8 +118,8 @@ In the job that publishes your release, change the `uses:` line and delete
 
 ## 5. Adopt the canonical update command
 
-go-core-lib `v1.4.0` adds two packages that replace each program's own update
-command
+Two packages, added in `v1.4.0` (when the module was `go-core-lib`), replace
+each program's own update command
 ([0004-PLAN-v1-4-0-command-surface.md](../decisions/0004-PLAN-v1-4-0-command-surface.md)):
 
 - `buildinfo` owns the build stamps, and decides release or local from them
@@ -130,7 +132,7 @@ The steps below are prepare-commit-msg's, proven on a scratch copy of it at
 `selfupdate/cli/testdata/migration` files byte for byte, with exit codes 0,
 10 and 1.
 
-**`go.mod`.** Require go-core-lib `v1.4.0`, with `go 1.27.1`. `mcplib` stays
+**`go.mod`.** Require go-selfupdate-lib `v1.5.0`, with `go 1.27.1`. `mcplib` stays
 only if something else still imports it; in prepare-commit-msg,
 `llmprovider` and `wizard` do.
 
@@ -144,9 +146,9 @@ import (
     "net/http"
     "time"
 
-    "github.com/maccavelli/go-core-lib/buildinfo"
-    "github.com/maccavelli/go-core-lib/selfupdate"
-    "github.com/maccavelli/go-core-lib/selfupdate/cli"
+    "github.com/maccavelli/go-selfupdate-lib/buildinfo"
+    "github.com/maccavelli/go-selfupdate-lib/selfupdate"
+    "github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
 )
 
 const (
@@ -210,12 +212,12 @@ diff --git a/Makefile b/Makefile
 @@ -22,3 +22,3 @@ build: ## Compiles the Go application for the local OS/Arch
      @mkdir -p $(DIST_DIR)
 -    @CGO_ENABLED=0 go build -trimpath -tags netgo -ldflags "-extldflags '-static' -s -w -X main.Version=$(VERSION)" -o $(DIST_DIR)/$(BINARY_NAME)-$(shell go env GOOS)-$(shell go env GOARCH)$(if $(filter windows,$(shell go env GOOS)),.exe,) .
-+    @CGO_ENABLED=0 go build -trimpath -tags netgo -ldflags "-extldflags '-static' -s -w -X github.com/maccavelli/go-core-lib/buildinfo.version=$(VERSION)" -o $(DIST_DIR)/$(BINARY_NAME)-$(shell go env GOOS)-$(shell go env GOARCH)$(if $(filter windows,$(shell go env GOOS)),.exe,) .
++    @CGO_ENABLED=0 go build -trimpath -tags netgo -ldflags "-extldflags '-static' -s -w -X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=$(VERSION)" -o $(DIST_DIR)/$(BINARY_NAME)-$(shell go env GOOS)-$(shell go env GOARCH)$(if $(filter windows,$(shell go env GOOS)),.exe,) .
  
 @@ -28,3 +28,3 @@ linux: linux-amd64 ## Alias for linux-amd64
  
 -RELEASE_LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.RawVersion=$(VERSION) -X main.RawBuildKind=release
-+RELEASE_LDFLAGS := -s -w -X github.com/maccavelli/go-core-lib/buildinfo.version=$(VERSION) -X github.com/maccavelli/go-core-lib/buildinfo.kind=release
++RELEASE_LDFLAGS := -s -w -X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=$(VERSION) -X github.com/maccavelli/go-selfupdate-lib/buildinfo.kind=release
  
 diff --git a/main.go b/main.go
 --- a/main.go
@@ -229,8 +231,8 @@ diff --git a/main.go b/main.go
      "time"
 @@ -21,4 +19,5 @@ import (
  
-+    "github.com/maccavelli/go-core-lib/buildinfo"
-+    "github.com/maccavelli/go-core-lib/selfupdate/cli"
++    "github.com/maccavelli/go-selfupdate-lib/buildinfo"
++    "github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
      "github.com/maccavelli/mcplib/llmprovider"
 -    "github.com/maccavelli/mcplib/selfupdate"
  )

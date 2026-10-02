@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
-	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 )
 
 // Tests for docs/decisions/0004-PLAN-v1-1-0-core-api.md Step 11. The fixed

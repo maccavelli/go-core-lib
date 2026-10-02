@@ -1,4 +1,4 @@
-# go-core-lib — shared Go library of general-purpose packages
+# go-selfupdate-lib — the fleet's self-update library
 # (no binary packaging targets).
 #
 # Prefer the user's Go toolchain install (go install ...), then PATH.

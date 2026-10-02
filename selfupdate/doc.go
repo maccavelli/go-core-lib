@@ -122,7 +122,7 @@
 // source, reporter and confirmer, and a fake GitHub API.
 //
 // Consumers publish through the reusable workflow
-// .github/workflows/publish-selfupdate-release.yml at the exact go-core-lib
+// .github/workflows/publish-selfupdate-release.yml at the exact go-selfupdate-lib
 // module-tag commit. That workflow is the only supported publication path
 // for the canonical asset contract. Its prerelease-channels-json input
 // names the channels it may publish prereleases for; the default publishes

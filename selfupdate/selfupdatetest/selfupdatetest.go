@@ -16,7 +16,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // manifestName is the checksum manifest's asset name.

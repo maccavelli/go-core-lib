@@ -380,3 +380,72 @@ Every step 3 check holds, so the rename may go ahead.
 | the same, on a scratch clone with the rewrite disabled (`if false`) | `6 passed, 3 failed`: `a base under another path compares by API: want exit 0, got 2`, and the two following checks |
 
 The PLAN asked for 7 checks or more; the test has 9.
+
+Committed as `fb78a16`.
+
+### Step 6: the rename commit (2026-10-02)
+
+**What changed.**
+
+* **The mechanical pass** replaced the module path in every tracked file
+  outside the records and `README.md`: 66 occurrences in 27 files. That is
+  the MADR's 53 in 24 code, test and config files, plus 13 in three current
+  documents: `AGENTS.md`, `docs/architecture.md` and both guides. Each file
+  was checked to hold none of the old path afterwards.
+* **`go.mod`:** the deprecation comment is gone; `go list -m` prints
+  `github.com/maccavelli/go-selfupdate-lib`.
+* **Prose:**
+  * the `Makefile`'s first line;
+  * `selfupdate/doc.go`;
+  * `AGENTS.md`'s identity paragraph, which now states MADR §1's scope;
+  * `docs/README.md`'s title, and its note on records 0001–0008;
+  * `docs/architecture.md`'s opening;
+  * the migration guide's title, `go 1.27.1` line, `go get` line (now
+    `@v1.5.0`), §3 pin text, `git ls-remote` line (now `v1.4.1`), and §5's
+    opening and `go.mod` line.
+* **`README.md`, rewritten where it was stale:**
+  * the title;
+  * a "Formerly `go-core-lib`" note;
+  * the self-update scope;
+  * the new module line;
+  * Status names `v1.5.0`, with a package table that now lists
+    `selfupdate/cli`, `buildinfo` and `selfupdatetest`;
+  * the publish paragraph;
+  * an "I want to…" row for the rename.
+* **The `uses:` lines** (`README.md` and the guide) name
+  `maccavelli/go-selfupdate-lib` and pin
+  `58411f1f7b00b5c98391c0f94503d09e0687d078`, the `v1.4.1` commit.
+  `git diff v1.3.0 HEAD -- .github/workflows/publish-selfupdate-release.yml`
+  is empty, so the pin carries the `prerelease-channels-json` input the
+  README documents. The `v1.0.0` pin it replaces did not.
+* **A pattern miss, fixed before any write to the guide.** The script's
+  guide edits stopped on an assert. The mechanical pass had already turned
+  the `git ls-remote` URL to the new path, so the pattern for the old one
+  matched nothing. The asserts run before the file is written, so the
+  guide was untouched. The edits were then applied by a second script with
+  the corrected pattern.
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `gofmt -l .` | empty |
+| `go build ./...`, `go vet ./...` | rc 0 |
+| `go mod tidy -diff` | rc 0; requirements and `go.sum` unchanged |
+| `go test -race -count=1 ./...` | every package ok, under the new path |
+| `go test -shuffle=on -count=2 ./...` | rc 0 |
+| `TestStampedBinary` | pass: the new `-X` names stamp a real binary |
+| `make lint` | 0 issues for `GOOS=linux`, `darwin` and `windows` |
+| `make apicheck` | `v1.4.1 declares github.com/maccavelli/go-core-lib; comparing it as github.com/maccavelli/go-selfupdate-lib`, then `compatible with v1.4.1` |
+| `make vuln` | `No vulnerabilities found.` |
+| `make fuzz` | `5 fuzz targets ran clean in ./selfupdate` |
+| script tests | `check-api-compat_test` 9/9, `check-release-tag_test` 51/51, `verify-selfupdate-release_test` all, `refuse-existing-release_test` 8/8, `go-fuzz_test` 12/12 |
+| shellcheck, markdownlint-cli2, actionlint v1.7.12 | rc 0 each |
+| cross `go vet` (freebsd, openbsd, linux/386) | rc 0 |
+| 0008's depguard proofs P0–P12, on the new path | all as in 0008; P9 now plants `go-selfupdate-lib/selfupdate/selfupdatetest` in `cli`, and is refused by `selfupdate-cli` |
+| the marker scan | 0 unexpected mentions. Allowed: the "formerly" notes in `AGENTS.md`, `README.md`, `docs/README.md`, `docs/architecture.md` and the guide, and record titles in the index. With a stray mention planted in a scratch copy it reported `selfupdate/doc.go:132` and failed |
+| the link resolver, on the six current documents | no broken link |
+| Windows test host | `go vet` rc 0; `go test -race` rc 0 for all four packages, under the new path; every script test rc 0 |
+
+**Next:** step 7 is the owner's: push, tag `v1.5.0` on this commit, and push
+the tag.

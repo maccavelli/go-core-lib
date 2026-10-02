@@ -125,7 +125,7 @@ func TestInfoString(t *testing.T) {
 }
 
 func TestLDFlags(t *testing.T) {
-	want := "-X github.com/maccavelli/go-core-lib/buildinfo.version=v1.2.3 -X github.com/maccavelli/go-core-lib/buildinfo.kind=release"
+	want := "-X github.com/maccavelli/go-selfupdate-lib/buildinfo.version=v1.2.3 -X github.com/maccavelli/go-selfupdate-lib/buildinfo.kind=release"
 	if got := LDFlags("v1.2.3"); got != want {
 		t.Fatalf("LDFlags = %q, want %q", got, want)
 	}

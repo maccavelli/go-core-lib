@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maccavelli/go-core-lib/buildinfo"
-	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // args is the scenario's command line.

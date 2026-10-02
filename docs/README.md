@@ -1,4 +1,8 @@
-# go-core-lib documentation
+# go-selfupdate-lib documentation
+
+The module was `go-core-lib` up to `v1.4.1`. Records 0001–0008 use that
+name, and the files they cite moved with the rename
+([0009-MADR](decisions/0009-MADR-rename-to-go-selfupdate-lib.md)).
 
 ## Records
 

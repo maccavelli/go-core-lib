@@ -57,7 +57,7 @@ linters:
             - $all
           allow:
             - $gostd
-            - github.com/maccavelli/go-core-lib
+            - github.com/maccavelli/go-selfupdate-lib
             - golang.org/x/mod
             - golang.org/x/sys
             - golang.org/x/term
@@ -86,8 +86,8 @@ linters:
           allow:
             - $gostd
             - golang.org/x/term
-            - github.com/maccavelli/go-core-lib/selfupdate$
-            - github.com/maccavelli/go-core-lib/buildinfo$
+            - github.com/maccavelli/go-selfupdate-lib/selfupdate$
+            - github.com/maccavelli/go-selfupdate-lib/buildinfo$
         selfupdatetest:
           list-mode: strict
           files:
@@ -95,7 +95,7 @@ linters:
             - "!$test"
           allow:
             - $gostd
-            - github.com/maccavelli/go-core-lib/selfupdate$
+            - github.com/maccavelli/go-selfupdate-lib/selfupdate$
     errcheck:
       check-type-assertions: true
       check-blank: true

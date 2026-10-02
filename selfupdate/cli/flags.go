@@ -5,8 +5,8 @@ import (
 	"flag"
 	"io"
 
-	"github.com/maccavelli/go-core-lib/buildinfo"
-	"github.com/maccavelli/go-core-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
 )
 
 // FlagSet is the part of a flag set Bind needs. *flag.FlagSet and pflag's

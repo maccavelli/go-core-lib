@@ -1,15 +1,16 @@
 # Architecture
 
-How `go-core-lib` is put together, as it is now. This file carries no
+How `go-selfupdate-lib` is put together, as it is now. This file carries no
 history and no rationale: the records under [decisions/](decisions/) hold the
 argument, and [README.md](README.md) indexes them.
 
 ## What it is
 
-A Git repository for the Go module `github.com/maccavelli/go-core-lib`: a
-library of general-purpose packages, one per top-level directory, with no
-root package and no binary. It also hosts the reusable GitHub Actions
-workflow that programs using `selfupdate` publish their releases through.
+A Git repository for the Go module `github.com/maccavelli/go-selfupdate-lib`,
+the fleet's self-update library: one package per top-level directory, with
+no root package and no binary. It was `go-core-lib` up to `v1.4.1`. It also
+hosts the reusable GitHub Actions workflow that programs using `selfupdate`
+publish their releases through.
 
 The module requires Go 1.27.1 and three modules: `golang.org/x/mod v0.40.0`,
 `golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`. Its current

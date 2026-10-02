@@ -1,6 +1,6 @@
 # Extending `selfupdate`
 
-For a program built on `github.com/maccavelli/go-core-lib/selfupdate` that
+For a program built on `github.com/maccavelli/go-selfupdate-lib/selfupdate` that
 needs more than the standalone default: a banner instead of an update, a
 front end that reads JSON, its own credential store, an extra check before
 install, or its own installer. Every section names one seam, what the package

@@ -11,10 +11,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/maccavelli/go-core-lib/buildinfo"
-	"github.com/maccavelli/go-core-lib/selfupdate"
-	"github.com/maccavelli/go-core-lib/selfupdate/cli"
-	"github.com/maccavelli/go-core-lib/selfupdate/selfupdatetest"
+	"github.com/maccavelli/go-selfupdate-lib/buildinfo"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/cli"
+	"github.com/maccavelli/go-selfupdate-lib/selfupdate/selfupdatetest"
 )
 
 // exampleUpdater builds an offline Updater for product, whose latest release
