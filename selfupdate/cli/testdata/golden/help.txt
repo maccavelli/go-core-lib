@@ -1,0 +1,13 @@
+Usage: demo update [flags]
+
+Flags:
+  --check            report whether an update is available; install nothing
+  --yes, -y          install without asking
+  --force            replace a local build, or reinstall the same version
+  --dry-run          download and verify the release; install nothing
+  --json             write JSON Lines to stdout; everything else to stderr
+  --version vX.Y.Z   install exactly this release
+  --channel NAME     follow a prerelease channel, such as rc
+
+Exit status: 0 up to date, declined or installed; 10 an update is
+available (with --check); 1 any error.

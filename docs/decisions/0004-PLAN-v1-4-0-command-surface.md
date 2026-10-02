@@ -75,7 +75,7 @@ Done means:
 | records: amendments F1–F9, the `v1.3.1` close-out, the index | 1 |
 | `buildinfo` | 2 |
 | `selfupdate.UserAgent`; `Makefile` (`fuzz -m 5`) | 3 |
-| `cli`: `Flags`, `Bind`, `Parse`, `Request`, `Help` | 4 |
+| `cli`: `Flags`, `Bind`, `Parse`, `Request`, `Help`; `selfupdate/cli/doc.go` (deviation D2) | 4 |
 | `cli`: `Options`, `StdioOptions`, `Run`, `Exit`, `Summary` | 5 |
 | `cli.Command` and the runnable examples | 6 |
 | the migration proof, the migration guide and the cobra recipe | 7 |
@@ -424,9 +424,15 @@ func Help(prog string) string
   and `channel`. `-y` is registered with `BoolVarP("yes", "y")` when `fs`
   has it; otherwise as a second bool flag `y` that sets the same field.
 * **`Parse`.**
-  * It builds a `flag.FlagSet` named `update`, with `ContinueOnError` and
-    output `stderr`, and a usage function that writes `HelpText`.
-  * It returns `flag.ErrHelp` for `-h` and `--help`.
+  * ~~It builds a `flag.FlagSet` named `update`, with `ContinueOnError` and
+    output `stderr`, and a usage function that writes `HelpText`.~~
+    *(Deviation D2.)* It builds a `flag.FlagSet` named `update`, with
+    `ContinueOnError`, its own output discarded and an empty usage
+    function. A usage error (an unknown flag, a bad value or a positional
+    argument) writes `HelpText` to `stderr` and returns the error, which
+    the caller reports once.
+  * It returns `flag.ErrHelp` for `-h` and `--help`, and writes nothing,
+    so the caller prints `Help(prog)` once *(D2)*.
   * A positional argument returns
     `cli: positional arguments are not accepted`.
 * **`Request`.**
@@ -596,7 +602,8 @@ func Command(ctx context.Context, args []string, product string, id buildinfo.In
 
 * **Paths.**
   1. `Parse`. `flag.ErrHelp`: write `Help(product)` to `Stderr` and return
-     0. Another error: report it and return 1.
+     0. Another error: report it and return 1. `Parse` has already written
+     `HelpText` for it *(D2)*.
   2. `Request`. An error: report it and return 1.
   3. `newUpdater()`. An error: report it and return 1.
   4. `Run`, then `Exit`.
@@ -843,3 +850,70 @@ func Command(ctx context.Context, args []string, product string, id buildinfo.In
 | A7 | control characters are kept | killed: `TestUserAgent` |
 | A7b | the `unknown` fallback is removed | killed: `TestUserAgent` |
 | A7c | `FuzzUserAgent` is renamed `fuzzUserAgent` | killed: `make fuzz` exits 1, finding 4 targets against `-m 5` |
+
+### Step 4: `cli` flags and requests (2026-10-02)
+
+**Deviation D2 (2026-10-02): how `Parse` writes.**
+
+* **Found.** As the PLAN described `Parse`, the flag package's output and a
+  usage function both went to stderr. Then `-h` printed help twice (the
+  flag package's `HelpText`, then `Command`'s `Help(prog)`). And
+  `--bogus` printed its error twice (`flag provided but not defined:
+  -bogus`, then `Exit`'s `update failed: …` line).
+* **Also found.** `revive`'s `package-comments` rule fails a package with
+  no package comment, so `selfupdate/cli/doc.go` must exist from the
+  package's first commit, not from Step 8.
+* **Decision.** The owner chose option 1: keep the code, and amend the
+  PLAN.
+  * The flag package's own output is discarded.
+  * A usage error writes `HelpText` once and returns the error, which
+    `Exit` reports once.
+  * `-h` writes nothing and returns `flag.ErrHelp`.
+* **Changed.**
+  * Step 4's `Parse` bullet and Step 6's first path are annotated.
+  * `doc.go` joins Step 4's scope. Step 8 still expands it.
+
+**What changed.**
+
+* **`selfupdate/cli/doc.go`** (new) has the package comment: the command
+  line, the stream rule and the exit codes.
+* **`selfupdate/cli/flags.go`** (new):
+  * `FlagSet`, `boolVarP`, `Flags`, `HelpText` and `Help`;
+  * `Bind`, `Parse` and `Request`, with the three contradiction errors in
+    `validateRequest`'s words.
+
+  A `HelpText` write that fails is joined into `Parse`'s error, because
+  `errcheck` (with `check-blank`) refuses a discarded write error.
+* **`selfupdate/cli/helpers_test.go`** (new), the helpers Steps 4–7 share:
+  the `-update` golden helper, a temporary target, a fixture release, and an
+  updater over a source.
+* **`selfupdate/cli/flags_test.go`** (new) has `TestBindStdlib`,
+  `TestBindShorthand`, `TestParse` (nine cases), `TestRequestContradictions`,
+  `TestRequestMapping` and `TestHelpText`.
+  * `Request` takes no updater, so the PLAN's "a spy proves `Request` asked
+    no updater" holds by its signature. `TestCommandLazyUpdater` (Step 6)
+    proves it for `Command`.
+* **`selfupdate/cli/testdata/golden/help.txt`** was written with `-update`
+  and read. It is the PLAN's `HelpText` under `Usage: demo update [flags]`.
+
+**Mutation proofs:**
+
+| ID | Mutation | Result |
+| :--- | :--- | :--- |
+| A8 | the `BoolVarP` branch is skipped | killed: `TestBindShorthand` |
+| A8b | the stdlib `-y` flag is not registered | killed: `TestBindStdlib` |
+| A9 | positional arguments are accepted | killed: `TestParse` |
+| A10 | the `--dry-run` pair is dropped | killed: `TestRequestContradictions` |
+| A10b | the `--force` message drifts from `validateRequest`'s | killed: `TestRequestContradictions` |
+| A11 | `Channel` is not mapped | killed: `TestRequestMapping` |
+| A11b | anything but `KindLocal` maps to a release build | first **survived**; `TestRequestMapping` had no zero-`Info` case. The case was added (`KindUnknown` is never a release), and then the mutation was killed |
+| H1 | `HelpText` loses the `--channel` line | killed: `TestHelpText` |
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `make pre-add-check` on the four files | first run: `errcheck` on `_, _ = io.WriteString(…)`, fixed in the code; second run: `4 file(s) clean` |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go mod tidy -diff` | rc 0 |
+| Windows test host | the first run, before the `errcheck` fix, passed; on the final code `go vet` rc 0, `go test -race` rc 0 (`selfupdate/cli` 1.3 s), the script tests rc 0 |
