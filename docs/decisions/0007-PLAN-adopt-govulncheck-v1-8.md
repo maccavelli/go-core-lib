@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-01
 associated-madr: "0007-MADR-adopt-govulncheck-v1-8.md"
 ---
@@ -135,3 +135,11 @@ WSL distributions, which have no Go. Nothing was installed in them.
 * markdownlint-cli2 0.23.2 reported 0 issues.
 * V3, CI on the pushed change, waits for the owner's push. This PLAN stays
   `in-progress` until then.
+
+### Close-out (2026-10-01)
+
+The owner pushed `ef05dfe`. CI run `36945362133` on `ef05dfec469f`
+concluded `success` on `ubuntu-24.04`, `windows-2025` and `macos-15`. Its
+govulncheck step ran `go install golang.org/x/vuln/cmd/govulncheck@v1.8.0`
+and reported `No vulnerabilities found.` (V3). V1–V3 hold, so this PLAN is
+`complete`.

@@ -22,7 +22,7 @@
 | 0006 | MADR | [Adopt golangci-lint v2.14.0, clearing its one finding at the source](decisions/0006-MADR-adopt-golangci-lint-v2-14.md) | accepted |
 | 0006 | PLAN | [Implement the golangci-lint v2.14.0 adoption](decisions/0006-PLAN-adopt-golangci-lint-v2-14.md) | complete |
 | 0007 | MADR | [Adopt govulncheck v1.8.0 in CI, in the install hints, and on every development host](decisions/0007-MADR-adopt-govulncheck-v1-8.md) | accepted |
-| 0007 | PLAN | [Implement govulncheck v1.8.0 across CI, hints and hosts](decisions/0007-PLAN-adopt-govulncheck-v1-8.md) | in-progress |
+| 0007 | PLAN | [Implement govulncheck v1.8.0 across CI, hints and hosts](decisions/0007-PLAN-adopt-govulncheck-v1-8.md) | complete |
 
 ## I want to…
 
