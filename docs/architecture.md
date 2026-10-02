@@ -47,7 +47,9 @@ scripts/
   *_test.sh                 offline tests for each of those scripts
 .claude/ .grok/ .opencode/  per-agent pointers to AGENTS.md
 opencode.json
+buildinfo/                  the library-owned build stamps
 selfupdate/                 the self-update package
+  cli/                      the canonical update command
   selfupdatetest/           its exported test doubles
 docs/
   README.md                 record index and the "I want to…" table
@@ -61,7 +63,9 @@ docs/
 
 | Directory | Package | Non-test files | Test files | Non-standard imports |
 | :--- | :--- | :--- | :--- | :--- |
-| `selfupdate/` | `selfupdate` | 38 | 56, including four fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `buildinfo/` | `buildinfo` | 1 | 2 | none |
+| `selfupdate/` | `selfupdate` | 39 | 57, including five fuzz targets, plus `testdata/SHA256SUMS.{valid,invalid}`, 23 `testdata/manifest-parity/` cases and 12 `testdata/golden/` files | `x/mod/semver`, `x/sys/unix`, `x/sys/windows`, `x/term` |
+| `selfupdate/cli/` | `cli` | 4 | 7, plus 41 `testdata/golden/` and 9 `testdata/migration/` files | `x/term` (and `selfupdate`, `buildinfo`) |
 | `selfupdate/selfupdatetest/` | `selfupdatetest` | 2 | 1 | none (`selfupdate` itself) |
 
 - `selfupdate` began as `mcplib` `v1.6.0`'s `selfupdate` (commit
@@ -119,6 +123,21 @@ docs/
     full; a failure is an error, never a fallback. Under a
     `ChannelPolicy`, a release whose prerelease flag disagrees with its
     tag is refused on every request, the stable channel included.
+- The Phase 3 command surface
+  ([0004-PLAN-v1-4-0-command-surface.md](decisions/0004-PLAN-v1-4-0-command-surface.md)):
+  - **`buildinfo`** (standard library only) owns two linker variables,
+    named by `VersionVar` and `KindVar`. `Identity` reports a release
+    only for the stamped kind `release` with a `vX.Y.Z` or
+    `vX.Y.Z-NAME.N` tag, and reads `debug.ReadBuildInfo` for display
+    only;
+  - **`selfupdate/cli`**: `Flags` (`Bind`, `Parse`, `Request`), `Run`,
+    `Exit`, `Summary`, `StdioOptions`, and `Command`, which is all of
+    them in order. `Run` wraps the context with the signals and the
+    timeout, picks the text or JSON reporter, and writes the summary
+    line or the one result object. Nothing in the package names
+    `os.Stdout` outside `StdioOptions`, which a test checks;
+  - **`selfupdate.UserAgent`** (`useragent.go`) builds
+    `product/version (goos/goarch)` for `GitHubOptions.UserAgent`.
 - `selfupdatetest` provides `NewRelease`, `FakeSource`,
   `RecordingReporter`, `ScriptedConfirmer`, and `GitHubServer`, a fake
   GitHub API on one TLS origin whose asset requests redirect to a second,
@@ -151,7 +170,8 @@ docs/
   leaves no read outstanding once a prompt is answered.
 - Platform code is split by build tag: `*_unix.go` (`//go:build unix`),
   `*_windows.go`, and `cleanup_other.go` for non-Windows receipt handling.
-- The package's GitHub `User-Agent` is supplied by the program. It reads
+- The package's GitHub `User-Agent` is supplied by the program;
+  `UserAgent` builds one. It reads
   `GH_TOKEN`, then `GITHUB_TOKEN`, when set.
 
 ## Release workflow

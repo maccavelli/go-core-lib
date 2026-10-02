@@ -1148,3 +1148,88 @@ in a second commit:
 
 `--amend` is kept for identifier fixes, so the split stands. Each commit
 passed the guard.
+
+### Step 8: documentation and close-out (2026-10-02)
+
+**What changed.**
+
+* **`selfupdate/doc.go`** gains "The canonical update command".
+* **`selfupdate/cli/doc.go`** gains the one-call use of `Command`, and the
+  cobra path. `buildinfo`'s package comment, written in Step 2, already
+  carries its `-ldflags` string and the release rule.
+* **`docs/architecture.md`:**
+  * the tree gains `buildinfo/` and `selfupdate/cli/`;
+  * the Go code table gains their rows, and `selfupdate`'s row becomes
+    39 non-test and 57 test files with five fuzz targets;
+  * a "Phase 3 command surface" bullet is added;
+  * the `User-Agent` line names `UserAgent`.
+* **`docs/README.md`** gains "add the update command to my program" and
+  "stamp a release build so `update` knows it is one".
+
+**A24, the API gate.** The register's mutation, removing `Result.DryRun`,
+does not compile: the updater uses the field. A build failure would fail
+`make apicheck` for the wrong reason, so the mutation was replaced, as rule
+2 requires. In a clone with the tags:
+
+* the baseline printed `compatible with v1.3.1`;
+* changing `DefaultLockTimeout` from 5 s to 6 s still builds;
+* `make apicheck` then exited non-zero with
+  `./selfupdate.DefaultLockTimeout: value changed from 5000000000 to
+  6000000000`.
+
+**Verification** (2026-10-02, at the working tree that this commit makes):
+
+| Item | Result |
+| :--- | :--- |
+| Register rows A1–A25 | each has its test. Every mutation was killed (Steps 2–8); A11b first survived and was killed after a case was added (Step 4) |
+| The scratch copy of prepare-commit-msg | byte-for-byte test passed; failed under each planted change (Step 7) |
+| `make pre-add-check` (`doc.go` files) | `2 file(s) clean` |
+| `make lint` | 0 issues for `GOOS=linux`, `darwin` and `windows` |
+| `make vuln` | `No vulnerabilities found.` |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go test -race -count=1 ./...`, `go test -shuffle=on -count=2 ./...` | rc 0 each |
+| `make fuzz` | `5 fuzz targets ran clean in ./selfupdate` |
+| `TestSignalCancels` | passed on macOS; under the `unix` build constraint it is not built on Windows; Linux runs it in CI |
+| `go mod tidy -diff` | rc 0; `go.mod` and `go.sum` unchanged since `v1.3.1` |
+| Windows test host | `go vet` rc 0; `go test -race` rc 0 for all four packages; every script test rc 0 |
+| Identifier scan and disclosure guard | 0 markers; the guard passed on every commit from Step 3 on, and over `351bd6a..` before each |
+
+**Not yet met:** CI on the pushed tree, which waits for the owner's push.
+This PLAN stays `in-progress` until then.
+
+### Release notes for `v1.4.0`
+
+Every change is an addition; `make apicheck` reports none incompatible with
+`v1.3.1`.
+
+* **`buildinfo`** (new, standard library only).
+  * `Identity()` reports whether the running binary is a release, from the
+    linker stamps alone. A release is the stamped kind `release` with a
+    `vX.Y.Z` or `vX.Y.Z-NAME.N` tag.
+  * `LDFlags(tag)` is the `-ldflags` fragment; `VersionVar` and `KindVar`
+    are the two `-X` symbols.
+  * `Info.Current()` and `Info.String()` give the version and the display
+    form.
+* **`selfupdate/cli`** (new). The canonical `update` subcommand:
+  * `--check`, `--yes`/`-y`, `--force`, `--dry-run`, `--json`, `--version`
+    and `--channel`;
+  * exit codes 0, 10 and 1;
+  * stdout holds only JSON Lines under `--json`, ending with one
+    `{"kind":"result",…}` object, and is empty otherwise;
+  * SIGINT and SIGTERM cancel, and the default timeout is 15 minutes.
+
+  `Command` is the whole command in one call. `Flags`, `Run`, `Exit` and
+  `Summary` serve programs that parse their own flags.
+* **`selfupdate.UserAgent(product, version)`** builds a sanitized
+  `product/version (goos/goarch)`.
+* **Tooling.** `make fuzz` requires five fuzz targets (`-m 5`), with the
+  new `FuzzUserAgent`.
+* **Docs.** The migration guide's §5 moves a program to `cli` and
+  `buildinfo`, proven on prepare-commit-msg.
+
+**For consumers.**
+
+* Nothing changes until a program adopts `cli`.
+* Adopting it moves progress and prompts from stdout to stderr, and
+  changes `Update failed:` to `update failed:`.
+* Programs require Go 1.27.1, as before.

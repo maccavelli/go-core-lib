@@ -10,4 +10,15 @@
 // line, then exactly one {"kind":"result",…} object. Everything else goes to
 // stderr. The exit status is 0 when up to date, declined or installed, 10
 // when --check finds an update, and 1 on any error.
+//
+// A program with the standard flag package calls Command once:
+//
+//	case "update":
+//		os.Exit(cli.Command(ctx, args, product, buildinfo.Identity(), newUpdater, cli.StdioOptions()))
+//
+// Command builds the updater only after the flags and the request are
+// valid. A program that parses its own flags, such as one using cobra,
+// binds Flags on its flag set and calls Flags.Request, Run and Exit itself.
+// The version comes from package buildinfo, stamped at link time with
+// buildinfo.LDFlags.
 package cli

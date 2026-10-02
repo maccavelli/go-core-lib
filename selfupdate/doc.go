@@ -109,6 +109,15 @@
 // Installer whose sessions implement TwoPhaseSession. A custom session used
 // with a Transformer must implement StagingOwner.
 //
+// # The canonical update command
+//
+// Package selfupdate/cli is the update subcommand every program shares: the
+// flags, stdout for protocol output only, the exit codes 0, 10 and 1, signal
+// cancellation and a timeout, in one call to cli.Command. Package buildinfo
+// owns the build stamps that decide Request.CurrentBuild, and UserAgent
+// builds the GitHub User-Agent
+// (docs/decisions/0004-MADR-evolve-selfupdate-api-and-tui-support.md §5).
+//
 // The selfupdatetest package provides test doubles: release fixtures, a fake
 // source, reporter and confirmer, and a fake GitHub API.
 //
