@@ -48,18 +48,31 @@ printf 'package selfupdate\n\n// PlantedAddition is a test fixture.\nfunc Plante
 check "an addition is compatible" 0 "$(run_gate "$BASE")"
 rm "$CLONE/selfupdate/zz_planted_addition.go"
 
-# 3. THE CASE THAT MATTERS. ExitCode, released in v1.0.0, is renamed to an
-#    unexported name everywhere, so the module still builds but the
-#    identifier is gone.
-find "$CLONE" -name '*.go' -not -path '*/.git/*' -exec perl -pi -e 's/\bExitCode\b/exitCode/g' {} +
-check "a removed identifier is refused" 1 "$(run_gate "$BASE")"
-if grep -q 'ExitCode: removed' "$WORK/out"; then
-	echo "  ok   the report names the removal"
-	PASS=$((PASS + 1))
-else
-	echo "  FAIL the report does not name the removal:"
-	sed 's/^/       /' "$WORK/out"
+# 3. THE CASE THAT MATTERS. NewStrictVersionPolicy, released in v1.0.0, is
+#    renamed to an unexported name in package selfupdate, so the module
+#    still builds but the identifier is gone. That holds only while no
+#    non-test code outside selfupdate/ uses it: such a use would stop the
+#    renamed module from building, and the gate would fail to load it
+#    rather than report the removal. The precondition says so by name
+#    (docs/decisions/0004-PLAN-v1-4-0-command-surface.md, deviation D3).
+PLANTED=NewStrictVersionPolicy
+users="$(grep -rlw --include='*.go' --exclude='*_test.go' "$PLANTED" "$CLONE" |
+	grep -v "^$CLONE/selfupdate/[^/]*\.go$" || true)"
+if [ -n "$users" ]; then
+	echo "  FAIL $PLANTED is used outside package selfupdate, so it cannot be the planted removal; choose another:"
+	echo "       ${users//"$CLONE"\//}"
 	FAIL=$((FAIL + 1))
+else
+	find "$CLONE/selfupdate" -maxdepth 1 -name '*.go' -exec perl -pi -e "s/\\b$PLANTED\\b/newStrictVersionPolicy/g" {} +
+	check "a removed identifier is refused" 1 "$(run_gate "$BASE")"
+	if grep -q "$PLANTED: removed" "$WORK/out"; then
+		echo "  ok   the report names the removal"
+		PASS=$((PASS + 1))
+	else
+		echo "  FAIL the report does not name the removal:"
+		sed 's/^/       /' "$WORK/out"
+		FAIL=$((FAIL + 1))
+	fi
 fi
 git -C "$CLONE" checkout --quiet -- .
 cp "$ROOT/scripts/check-api-compat.sh" "$CLONE/scripts/check-api-compat.sh"

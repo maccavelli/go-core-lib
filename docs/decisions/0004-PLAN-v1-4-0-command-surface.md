@@ -1233,3 +1233,56 @@ Every change is an addition; `make apicheck` reports none incompatible with
 * Adopting it moves progress and prompts from stdout to stderr, and
   changes `Update failed:` to `update failed:`.
 * Programs require Go 1.27.1, as before.
+
+### Deviation D3 (2026-10-02): the API gate's own test
+
+* **Found.**
+  * CI run `37030796044` on `95e66f0` failed on `ubuntu-24.04`, in the
+    "API compatibility" step. macOS and Windows passed, and so did
+    `make apicheck` itself (`compatible with v1.3.1`).
+  * The step's second command, `scripts/check-api-compat_test.sh`, failed
+    2 of its 6 cases: `a removed identifier is refused: want exit 1, got
+    2`, and the report did not name the removal.
+* **Cause.**
+  * The test plants a removal by renaming the exported `ExitCode` to
+    `exitCode` in every `.go` file of a clone.
+  * `selfupdate/cli/run.go` now calls `selfupdate.ExitCode`, so the renamed
+    clone no longer builds. apidiff could not load it: `name exitCode not
+    exported by package selfupdate`, exit 2.
+  * The test is unchanged since `36fa418`.
+  * **The gap in this PLAN's checks.** Steps 2–8 ran `make apicheck`, and
+    never the script CI runs right after it. Rule 3's list of checks did
+    not include it.
+* **Decision.** The owner chose option 1: "option 1, follow
+  recommendations". The alternative was to copy `ExitCode`'s logic into
+  `cli`, so that `cli` no longer calls it.
+* **Changed:** `scripts/check-api-compat_test.sh` only. This file joins the
+  PLAN's scope.
+  * The planted removal is `NewStrictVersionPolicy`, which is in `v1.0.0`
+    and which no non-test code outside `selfupdate/` uses. It is renamed
+    only in `selfupdate/*.go`.
+  * The report must say `NewStrictVersionPolicy: removed`.
+  * A precondition runs first. If any non-test file outside `selfupdate/`
+    uses the planted name, the test fails, names the file, and says to
+    choose another identifier, instead of failing on a load error.
+* **Proofs.** Each ran on a scratch clone, with its own commit where one
+  was needed:
+  * the real tree: `check-api-compat_test: 6 passed, 0 failed`;
+  * with `var _ = selfupdate.NewStrictVersionPolicy` added to
+    `selfupdate/cli/run.go`: exit 1, `FAIL NewStrictVersionPolicy is used
+    outside package selfupdate, so it cannot be the planted removal; choose
+    another:`, naming `selfupdate/cli/run.go`;
+  * with the rename changed to a no-op: exit 1, `FAIL a removed
+    identifier is refused`.
+* **Every CI step, run here.** The Linux job had stopped at this step, so
+  every later step was run on the macOS development host:
+  * shellcheck 0.11.0 on `scripts/*.sh`;
+  * markdownlint-cli2;
+  * actionlint v1.7.12;
+  * `check-release-tag_test.sh` (51 passed, 0 failed);
+  * `verify-selfupdate-release_test.sh` and
+    `refuse-existing-release_test.sh`;
+  * cross `go vet` for freebsd/amd64, openbsd/amd64 and linux/386.
+
+  Each exited 0. `make vuln` and the workflow-contract scripts had already
+  passed in Step 8, on this host and on the Windows test host.
