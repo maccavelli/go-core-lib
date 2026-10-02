@@ -1,5 +1,12 @@
 # go-core-lib
 
+> **Renamed.** This module is now `github.com/maccavelli/go-selfupdate-lib`,
+> in the repository `maccavelli/go-selfupdate-lib`. `v1.4.1` is the last
+> release under `github.com/maccavelli/go-core-lib`; it is marked deprecated
+> in `go.mod`, so `go list -m -u` and `go get` point to the new path. New
+> releases start at `v1.5.0` under the new path
+> ([0009-MADR](docs/decisions/0009-MADR-rename-to-go-selfupdate-lib.md)).
+
 A Go library of general-purpose packages shared by the fleet's programs:
 code that is neither MCP-specific (that stays in `mcplib`) nor LLM-provider
 access (that lives in `go-llmprovider-sdk`). Each capability is its own

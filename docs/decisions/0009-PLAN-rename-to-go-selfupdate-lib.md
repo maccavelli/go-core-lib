@@ -289,3 +289,29 @@ both tags, and the proxy serves both.
 
 The owner approved the PLAN ("approved, commit to main"). The MADR is
 `accepted` with Q1–Q4 answered, and this PLAN is `in-progress`.
+
+### Step 2: the deprecation notice (2026-10-02)
+
+* **`go.mod`** carries `// Deprecated: renamed to
+  github.com/maccavelli/go-selfupdate-lib. Use that module.`, immediately
+  before the `module` directive.
+* **`README.md`** opens with a "Renamed" note: the new path and repository,
+  `v1.4.1` as the old path's last release, and `v1.5.0` as the first under
+  the new one.
+
+**Checks:**
+
+| Check | Result |
+| :--- | :--- |
+| `go list -m` | `github.com/maccavelli/go-core-lib`, unchanged |
+| `go mod tidy -diff` | rc 0 |
+| `go build ./...`, `go test -count=1 ./...` | rc 0 |
+| `make lint` | 0 issues for `GOOS=linux`, `darwin` and `windows` |
+| markdownlint on `README.md` | 0 issues |
+| `go mod edit -json` on a scratch clone | `Module.Deprecated` is `renamed to github.com/maccavelli/go-selfupdate-lib. Use that module.` |
+| the same, with the marker lowercased (`// deprecated:`) | no `Deprecated` field: `go` reads only the exact marker |
+| a scratch consumer importing `buildinfo` and `selfupdate` through `replace` | builds, rc 0 |
+| Windows test host | `go vet` and `go test -race` rc 0; every script test rc 0 |
+
+**Next:** step 3 is the owner's: push, tag `v1.4.1` on this commit, and push
+the tag.

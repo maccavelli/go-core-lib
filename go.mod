@@ -1,3 +1,4 @@
+// Deprecated: renamed to github.com/maccavelli/go-selfupdate-lib. Use that module.
 module github.com/maccavelli/go-core-lib
 
 go 1.27.1
