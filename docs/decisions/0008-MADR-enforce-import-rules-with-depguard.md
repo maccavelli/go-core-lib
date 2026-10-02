@@ -228,6 +228,20 @@ approving the PLAN. Q1 and Q2 are taken as recommended: test files get
 * **Q2. A tag.** Recommended: none. Nothing a consumer builds changes. The
   alternative is a `v1.4.1` that carries only lint configuration.
 
+## Amendments
+
+### D1 (2026-10-02): the forbidden rule is named `banned`
+
+*From [0008-PLAN-enforce-import-rules-with-depguard.md](0008-PLAN-enforce-import-rules-with-depguard.md),
+deviation D1, approved by the owner.*
+
+§1's rule is named `banned`, not `forbidden`. depguard reports every rule
+that refuses an import, and golangci-lint keeps one finding per line, the
+first rule's by name. Under `forbidden`, a banned import in `buildinfo`
+was refused with the `buildinfo` rule's finding, with no reason. `banned`
+sorts before every other rule, so a banned module is always refused with
+its reason. A new rule must be named to sort after it.
+
 ## More Information
 
 * `AGENTS.md`, Dependencies.

@@ -6,6 +6,7 @@ linters:
   default: none
   enable:
     - bodyclose
+    - depguard
     - errcheck
     - errorlint
     - gocognit
@@ -26,6 +27,75 @@ linters:
     - unused
     - whitespace
   settings:
+    # The module's import rules
+    # (docs/decisions/0008-MADR-enforce-import-rules-with-depguard.md).
+    depguard:
+      rules:
+        # golangci-lint keeps one finding per line, the first rule's by name,
+        # so "banned" must sort before every other rule: a banned module is
+        # then always refused with its reason. Name new rules to sort after it
+        # (docs/decisions/0008-PLAN-enforce-import-rules-with-depguard.md,
+        # deviation D1).
+        banned:
+          list-mode: lax
+          files:
+            - $all
+          deny:
+            - pkg: github.com/maccavelli/mcplib
+              desc: "this module never imports mcplib (AGENTS.md, Dependencies)"
+            - pkg: github.com/modelcontextprotocol/go-sdk
+              desc: "this module never imports the MCP go-sdk (AGENTS.md, Dependencies)"
+            - pkg: github.com/maccavelli/go-llmprovider-sdk
+              desc: "this module never imports go-llmprovider-sdk (AGENTS.md, Dependencies)"
+            - pkg: charm.land
+              desc: "Charm lives in go-tui-lib, not here (0004-MADR, Decision Outcome)"
+            - pkg: github.com/charmbracelet
+              desc: "Charm lives in go-tui-lib, not here (0004-MADR, Decision Outcome)"
+        module:
+          list-mode: strict
+          files:
+            - $all
+          allow:
+            - $gostd
+            - github.com/maccavelli/go-core-lib
+            - golang.org/x/mod
+            - golang.org/x/sys
+            - golang.org/x/term
+        buildinfo:
+          list-mode: strict
+          files:
+            - "**/buildinfo/*.go"
+            - "!$test"
+          allow:
+            - $gostd
+        selfupdate:
+          list-mode: strict
+          files:
+            - "**/selfupdate/*.go"
+            - "!$test"
+          allow:
+            - $gostd
+            - golang.org/x/mod/semver
+            - golang.org/x/sys
+            - golang.org/x/term
+        selfupdate-cli:
+          list-mode: strict
+          files:
+            - "**/selfupdate/cli/*.go"
+            - "!$test"
+          allow:
+            - $gostd
+            - golang.org/x/term
+            - github.com/maccavelli/go-core-lib/selfupdate$
+            - github.com/maccavelli/go-core-lib/buildinfo$
+        selfupdatetest:
+          list-mode: strict
+          files:
+            - "**/selfupdate/selfupdatetest/*.go"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/maccavelli/go-core-lib/selfupdate$
     errcheck:
       check-type-assertions: true
       check-blank: true
