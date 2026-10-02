@@ -27,6 +27,8 @@
 | 0007 | PLAN | [Implement govulncheck v1.8.0 across CI, hints and hosts](decisions/0007-PLAN-adopt-govulncheck-v1-8.md) | complete |
 | 0008 | MADR | [Enforce the module's import rules with depguard: forbidden modules, a module floor, and a floor per package](decisions/0008-MADR-enforce-import-rules-with-depguard.md) | accepted |
 | 0008 | PLAN | [Implement depguard import rules](decisions/0008-PLAN-enforce-import-rules-with-depguard.md) | complete |
+| 0009 | MADR | [Rename go-core-lib to go-selfupdate-lib: rename the repository in place, deprecate the old module path first, and publish the new path from v1.5.0](decisions/0009-MADR-rename-to-go-selfupdate-lib.md) | accepted |
+| 0009 | PLAN | [Rename go-core-lib to go-selfupdate-lib (`v1.4.1`, `v1.5.0`)](decisions/0009-PLAN-rename-to-go-selfupdate-lib.md) | in-progress |
 
 ## I want to…
 
