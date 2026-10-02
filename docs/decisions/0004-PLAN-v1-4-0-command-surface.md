@@ -786,3 +786,60 @@ func Command(ctx context.Context, args []string, product string, id buildinfo.In
 | `go test -race -count=1 ./...` | rc 0 |
 | `go mod tidy -diff` | rc 0; `go.mod` unchanged |
 | Windows test host | `go vet` rc 0; `go test -race` rc 0, with `buildinfo` 3.3 s, so `TestStampedBinary` built its `.exe` binaries; the script tests rc 0 |
+
+**Deviation D1 (2026-10-02): the guard did not run for Step 2's commit.**
+
+* **Found.**
+  * The command that committed Step 2 ran the disclosure guard and the
+    commit with `;` between them. So `bf7221a` was made although the guard
+    exited 1.
+  * The exit came from the session's wrapper script, not from a finding.
+    The wrapper fetched `origin/main` into a scratch clone, and once local
+    `main` was ahead that fetch was a rewind, which git refuses. Step 1's
+    run passed only because `main` still equalled `origin/main`.
+  * Debugging the wrapper with shell tracing echoed the owner's shell
+    profile into the session, credentials included. The trace file was
+    deleted, and the owner was told to rotate the exposed token.
+* **Decision.** The owner said "proceed".
+  * The wrapper is replaced by a Python script. It runs `git` and the
+    guard with a minimal environment, and no local shell script is run
+    again.
+  * The guard was proven on a planted home path, and rejected it (rc 1).
+  * It then passed over `351bd6a..bf7221a`, Steps 1 and 2 (rc 0).
+  * From Step 3 on, each commit runs only if the guard has passed, in
+    the same command (`&&`).
+* **Not changed.** No file was added to any step's scope. `bf7221a` itself
+  needed no change.
+
+### Step 3: `selfupdate.UserAgent` (2026-10-02)
+
+**What changed.**
+
+* **`selfupdate/useragent.go`** (new) has `UserAgent` and the token
+  sanitiser, as planned. The empty token is the constant `uaUnknown`,
+  which `goconst` asked for.
+* **`selfupdate/useragent_test.go`** (new) has `TestUserAgent`, a table of
+  nine cases that each check the exact output, `validateUserAgent` and the
+  shape. It also has `FuzzUserAgent`, which checks the same shape and
+  check, and that a second pass changes nothing.
+* **`Makefile`.** `fuzz` passes `-m 5`.
+
+**Checks.**
+
+| Check | Result |
+| :--- | :--- |
+| `go test -fuzz FuzzUserAgent -fuzztime 20s` | 751,374 executions, no failure |
+| `make fuzz FUZZTIME=2s` | `5 fuzz targets ran clean in ./selfupdate` |
+| `make pre-add-check` on the two Go files | first run: `goconst` (`"unknown"` three times) and `gocritic` (`len(s) > 0`); both fixed in the code; second run: `2 file(s) clean` |
+| `make apicheck` | `compatible with v1.3.1` |
+| `go test -race -count=1 ./...` | rc 0 |
+| `go mod tidy -diff` | rc 0 |
+| Windows test host, on the final code | first run: every Go check passed; `scripts/check-workflows_test.sh` case R8 got exit 139, a Git Bash segfault, where it wants 1. This step does not touch that script, and its first run had passed. Re-run: every check rc 0, R8 included |
+
+**Mutation proofs:**
+
+| ID | Mutation | Result |
+| :--- | :--- | :--- |
+| A7 | control characters are kept | killed: `TestUserAgent` |
+| A7b | the `unknown` fallback is removed | killed: `TestUserAgent` |
+| A7c | `FuzzUserAgent` is renamed `fuzzUserAgent` | killed: `make fuzz` exits 1, finding 4 targets against `-m 5` |
