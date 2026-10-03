@@ -524,3 +524,45 @@ the tag.
 
 * step 8, the owner's: rename the local directory and set the remote URL;
 * then step 9: the release notes, which state the old-path behaviour above.
+
+### Step 8: local follow-up (2026-10-02)
+
+* **The working directory** had already been renamed to
+  `go-selfupdate-lib` by the owner.
+* **The remote.** `origin` still named `…/go-core-lib.git` for fetch and
+  push, and worked only through GitHub's redirect. It now names
+  `https://github.com/maccavelli/go-selfupdate-lib.git` for both:
+
+  ```text
+  $ git remote -v
+  origin  https://github.com/maccavelli/go-selfupdate-lib.git (fetch)
+  origin  https://github.com/maccavelli/go-selfupdate-lib.git (push)
+  $ git fetch origin; echo $?
+  0
+  $ git rev-parse main origin/main
+  2ab13aa45a46d575282200f5825a7ecbe9d7cd3e
+  2ab13aa45a46d575282200f5825a7ecbe9d7cd3e
+  ```
+
+  `branch.main` still tracks `origin/main`. `gh repo view` resolves both the
+  new and the old name to `maccavelli/go-selfupdate-lib`, not archived,
+  default branch `main`.
+* **Identity, checked, unchanged.** `user.name` and `user.email` are set in
+  the repository's local config and agree with the global config. The last
+  five commits carry that identity as author and committer. Hooks resolve
+  to the global hooks directory.
+* **The agent's per-project memory.** The old directory's key held
+  `MEMORY.md` and one feedback memory; the new key's directory was empty.
+  Both files were copied unchanged (`cmp` rc 0 for each). The old key is
+  kept until the owner confirms that a session under the new directory
+  reads them.
+* **Deviation (2026-10-02).** The step names the owner as running
+  `git remote set-url`. The agent ran it at the owner's request, in the
+  turn the owner asked for the remote to be put right. The command and the
+  check are as written; only who ran it changed.
+
+**Next:**
+
+* the owner: confirm that a new session here loads the copied memory; the
+  old key is removed only on the owner's go-ahead;
+* step 9: release notes and close-out.
