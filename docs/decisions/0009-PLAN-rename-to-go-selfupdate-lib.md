@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 date: 2026-10-02
 associated-madr: "0009-MADR-rename-to-go-selfupdate-lib.md"
 ---
@@ -566,3 +566,108 @@ the tag.
 * the owner: confirm that a new session here loads the copied memory; the
   old key is removed only on the owner's go-ahead;
 * step 9: release notes and close-out.
+
+### Step 9: release notes and close-out (2026-10-02)
+
+The owner approved step 9 ("proceed").
+
+* **`docs/architecture.md`** names `v1.5.0` as the current release, the
+  annotated tag on `6deaa524cfb28aad90bea97a6d9162e5b4257204`.
+* **This PLAN** is `complete`, and `docs/README.md` says so.
+* **The per-project memory, under the new directory.** This session runs
+  under the new directory's key. Its context loaded the copied `MEMORY.md`
+  and the memory it indexes, so the new key is read. The old key is still
+  on disk. Removing it writes outside the repository, so it waits for the
+  owner's go-ahead.
+* **CI on `main`.** Run `37080415438` on `2ab13aa` concluded `success`.
+  Run `37084275297` on `cb902c4`, step 8's record, concluded `success` on
+  `ubuntu-24.04`, `macos-15` and `windows-2025`.
+
+### Release notes for `v1.4.1`
+
+The last release under `github.com/maccavelli/go-core-lib`. It has the same
+API and code as `v1.4.0`.
+
+* **`go.mod`** marks the module deprecated: `renamed to
+  github.com/maccavelli/go-selfupdate-lib. Use that module.`
+* **`README.md`** opens with a "Renamed" note naming the new path, and
+  `v1.5.0` as its first release.
+* **`.golangci.yml`** carries the `depguard` import rules of
+  [0008-MADR-enforce-import-rules-with-depguard.md](0008-MADR-enforce-import-rules-with-depguard.md).
+  Nothing else outside the documentation changes: no `.go` file and no
+  `go.sum` line.
+
+**For consumers.**
+
+* Pinned versions of the old path, `v1.0.0`–`v1.4.1`, keep resolving.
+* Move to the new path at `v1.5.0` (below).
+* **The deprecation notice is no longer shown** (step 7). Since `v1.5.0`
+  was tagged, `go` resolves the old path's `@latest` to `v1.5.0`. Its
+  `go.mod` declares the new path, so:
+  * `go get github.com/maccavelli/go-core-lib@latest` fails, with a
+    message that names the new path;
+  * `go get -u` retries, and lands on `v1.4.1`;
+  * `go list -m -u` no longer says `(deprecated)`.
+
+### Release notes for `v1.5.0`
+
+The first release under `github.com/maccavelli/go-selfupdate-lib`. The
+repository was renamed from `maccavelli/go-core-lib`. The API is
+`v1.4.1`'s, unchanged. `make apicheck` reports it compatible across the
+path change.
+
+* **The module path** is `github.com/maccavelli/go-selfupdate-lib`, for
+  `selfupdate`, `selfupdate/cli`, `selfupdate/selfupdatetest` and
+  `buildinfo`.
+* **Requirements are unchanged.** Go 1.27.1, `golang.org/x/mod v0.40.0`,
+  `golang.org/x/sys v0.47.0` and `golang.org/x/term v0.43.0`.
+* **`buildinfo`'s `-X` symbols change with the path** (MADR §5).
+  `VersionVar` and `KindVar` are now
+  `github.com/maccavelli/go-selfupdate-lib/buildinfo.version` and
+  `….kind`.
+  * A program that stamps with `buildinfo.LDFlags` follows automatically.
+  * **A program that writes the `-X` names out must change them.** If it
+    does not, its release binary is stamped as a local build.
+* **The reusable release workflow** is
+  `maccavelli/go-selfupdate-lib/.github/workflows/publish-selfupdate-release.yml`.
+  `README.md` and the migration guide pin it to `58411f1`, the `v1.4.1`
+  commit.
+* **Tooling.** `scripts/check-api-compat.sh` compares against a base
+  release that declares another module path. It rewrites that path in its
+  scratch worktree before comparing.
+
+**For consumers.**
+
+* Replace `github.com/maccavelli/go-core-lib` with
+  `github.com/maccavelli/go-selfupdate-lib` in `go.mod` and in every
+  import, then `go get github.com/maccavelli/go-selfupdate-lib@v1.5.0`.
+* **The older tags are not versions of the new path.** `v1.0.0`–`v1.4.1`
+  declare the old path, so `go get
+  github.com/maccavelli/go-selfupdate-lib@v1.4.0` fails with a path
+  mismatch (MADR §3). The proxy's version list still names them, because
+  they are tags of the same repository.
+* Apart from the `-X` names above, behaviour at run time does not change.
+
+### Follow-ups in other repositories (MADR §8)
+
+Each changes under its own records. None is blocked, since none imports
+this module.
+
+* **go-tui-lib.** `AGENTS.md`'s allowed-dependency list and `0001-MADR` §3
+  name `github.com/maccavelli/go-core-lib`. Both must name
+  `github.com/maccavelli/go-selfupdate-lib` before it adds `updatetea`.
+* **pi-go.** Its proposed `0004-MADR` plans to depend on this module, and
+  should name the new path, at `v1.5.0` or later.
+* **Records elsewhere** that mention the old name stay as written.
+
+### Close-out
+
+Every item under Verification holds. CI is green on `v1.4.1`, on `v1.5.0`
+and on `main` through `cb902c4`. The proxy serves both paths. Step 7
+records the old path's `@latest` as MADR §7 asked. `go.mod`'s requirements
+and `go.sum` did not change.
+
+This PLAN is `complete`. These items stay open, and are the owner's:
+
+* **Remove the old memory key,** now that the new one is read.
+* **The go-tui-lib and pi-go follow-ups** above.
