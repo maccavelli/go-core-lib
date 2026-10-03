@@ -449,3 +449,78 @@ Committed as `fb78a16`.
 
 **Next:** step 7 is the owner's: push, tag `v1.5.0` on this commit, and push
 the tag.
+
+### Step 7: `v1.5.0` (2026-10-02)
+
+* **The owner** pushed `main` at `6deaa52`, and tagged and pushed `v1.5.0`
+  (annotated, tag object `ce5cf7e`) on it. `git ls-remote origin` shows
+  `refs/tags/v1.5.0^{}` at `6deaa524cfb28aad90bea97a6d9162e5b4257204`.
+* **CI.** Run `37062108333` on `main` and run `37077092111` on the tag both
+  concluded `success`, on `ubuntu-24.04`, `macos-15` and `windows-2025`.
+* **The new path, through `proxy.golang.org`**, from a scratch module with
+  its own module cache:
+
+  ```text
+  $ go get github.com/maccavelli/go-selfupdate-lib@latest
+  go: added github.com/maccavelli/go-selfupdate-lib v1.5.0
+  $ go list -m -versions github.com/maccavelli/go-selfupdate-lib
+  github.com/maccavelli/go-selfupdate-lib v1.0.0 v1.0.1 v1.1.0 v1.2.0 v1.3.0 v1.3.1 v1.4.0 v1.4.1 v1.5.0
+  $ go get github.com/maccavelli/go-selfupdate-lib@v1.4.0
+  go: github.com/maccavelli/go-selfupdate-lib@v1.4.0 requires github.com/maccavelli/go-selfupdate-lib@v1.4.0: parsing go.mod:
+      module declares its path as: github.com/maccavelli/go-core-lib
+              but was required as: github.com/maccavelli/go-selfupdate-lib
+  ```
+
+  The proxy's `@latest` endpoint answers `v1.5.0`, origin
+  `refs/tags/v1.5.0` at `6deaa52`. The version list also names the eight
+  tags from before the rename, because they are tags of the same
+  repository. As MADR §3 states, none of them resolves under this path.
+* **The scratch consumer** imports `…/buildinfo`, `…/selfupdate` and
+  `…/selfupdate/cli`, and calls `buildinfo.Identity`, `cli.Help` and
+  names `selfupdate.Request`. `go mod tidy`, `go build` and `go vet` exit 0.
+  The binary runs and prints `dev (local) | true`. Tidy pulls
+  `golang.org/x/mod v0.40.0`, `golang.org/x/sys v0.47.0` and
+  `golang.org/x/term v0.43.0`, the requirements in `go.mod`.
+* **The old path's `@latest` (MADR §7): the named risk happened.** From a
+  second scratch module with its own module cache:
+
+  ```text
+  $ go list -m github.com/maccavelli/go-core-lib@latest
+  github.com/maccavelli/go-core-lib v1.5.0
+  $ go get github.com/maccavelli/go-core-lib@v1.4.0
+  go: added github.com/maccavelli/go-core-lib v1.4.0
+  $ go list -m -u all
+  github.com/maccavelli/go-core-lib v1.4.0 [v1.5.0]
+  $ go get github.com/maccavelli/go-core-lib@latest
+  go: github.com/maccavelli/go-core-lib@latest (v1.5.0) requires github.com/maccavelli/go-core-lib@v1.5.0: parsing go.mod:
+      module declares its path as: github.com/maccavelli/go-selfupdate-lib
+              but was required as: github.com/maccavelli/go-core-lib
+  $ go get -u ./...
+  go: github.com/maccavelli/go-core-lib@v1.5.0: parsing go.mod:
+      module declares its path as: github.com/maccavelli/go-selfupdate-lib
+              but was required as: github.com/maccavelli/go-core-lib
+      trying github.com/maccavelli/go-core-lib@v1.4.1
+  ...
+  go: upgraded github.com/maccavelli/go-core-lib v1.4.0 => v1.4.1
+  ```
+
+  * The proxy's version list for the old path now includes `v1.5.0`,
+    whose `.mod` declares the new path. `go` takes `@latest` from that
+    list. The proxy's own `@latest` endpoint still answers `v1.4.1`, but
+    `go` does not use it while the list is non-empty.
+  * **The deprecation notice is lost.** Step 3 recorded it on `go get
+    …@v1.4.0` and in `go list -m -u all` (`(deprecated)`). Neither shows it
+    now, and `go list -m -u -json` has no `Deprecated` field, because `go`
+    reads it from `v1.5.0`'s `go.mod`, which has none.
+  * **What still works:**
+    * pinned versions resolve, `v1.4.0` and `v1.4.1` included;
+    * `go get -u` retries, and lands on `v1.4.1`.
+  * **What fails:** `go get …@latest` on the old path. It fails loudly, with
+    a message that names the new path.
+  * As MADR §7 and step 7 direct, this is recorded and not worked around.
+    No program depends on the old path (MADR, "Who depends on it").
+
+**Next:**
+
+* step 8, the owner's: rename the local directory and set the remote URL;
+* then step 9: the release notes, which state the old-path behaviour above.
